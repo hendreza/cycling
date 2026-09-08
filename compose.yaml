@@ -1,0 +1,25 @@
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_PATH: /data/pilot.db
+      VELD_AREA_PATH: /data/areas/rooihuiskraal.json
+      VELD_NEIGHBOURHOODS_PATH: /data/areas/centurion-neighbourhoods.json
+      OSM_DATA_PATH: /data/centurion-osm.json
+      ADMIN_KEY: ${ADMIN_KEY:-}
+    volumes:
+      - pilot-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+volumes:
+  pilot-data:
