@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  MAX_RIDE_DISTANCE_KM,
-  MAX_LAPS,
-  MIN_LAP_DISTANCE_KM,
-} from "./planningLimits";
 import { controlPoints } from "./routeEditing";
 import SafetyAssessment from "./SafetyAssessment";
+import PrivacyPanel from "./PrivacyPanel";
+import { initial } from "./types";
+import PlannerSetup from "./PlannerSetup";
+import { Logo, ScoreBar, Notice } from "./Brand";
 import RideMap from "./RideMap";
 import { usePreciseLocation } from "./usePreciseLocation";
 import { riderSpeed, movingMinutes } from "./timing";
@@ -19,6 +18,7 @@ import {
 } from "./types";
 import { restoreSession, saveSession } from "./persistence";
 import {
+  RefreshCw,
   ArrowDownToLine,
   ArrowRight,
   Bike,
@@ -202,6 +202,7 @@ export default function App() {
   const [selected, setSelected] = useState(restored.selected);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [searchLimits, setSearchLimits] = useState<{ longest_loop_km: number; minimum_laps: number | null; max_laps: number } | null>(null);
   const [message, setMessage] = useState(restored.message);
   const [tab, setTab] = useState(restored.tab);
   const [modal, setModal] = useState(false);
@@ -217,6 +218,7 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const locationDirty =
     plan.stay_local !== usedPlan.stay_local ||
+    plan.coverage !== usedPlan.coverage ||
     plan.radius_km !== usedPlan.radius_km ||
     plan.mode !== usedPlan.mode ||
     plan.start !== usedPlan.start ||
@@ -239,40 +241,23 @@ export default function App() {
       else next.laps = Math.min(next.laps, Math.floor(next.distance / 2));
       return next;
     });
-  function trainingDistance(distance: number) {
-    const currentLap =
-      !dirty && route
-        ? route.lap_distance_m
-          ? route.lap_distance_m / 1000
-          : (route.lap_distance ?? route.distance / (route.laps ?? 1))
-        : plan.distance / plan.laps;
-    const laps = Math.min(
-      MAX_LAPS,
-      Math.floor(distance / MIN_LAP_DISTANCE_KM),
-      Math.max(1, Math.ceil(distance / currentLap)),
-    );
-    setPlan({ ...plan, distance, laps });
-  }
-  function enteredDistance(input: HTMLInputElement) {
-    const number = Number(input.value);
-    const distance =
-      input.value.trim() && Number.isFinite(number)
-        ? Math.max(5, Math.min(MAX_RIDE_DISTANCE_KM, Math.round(number)))
-        : plan.distance;
-    input.value = String(distance);
-    if (distance !== plan.distance) update("distance", distance);
-  }
-  async function generate(p = plan) {
+  async function generate(p = plan, different = false) {
+    if (!different) p = { ...p, exclude_routes: [] };
     setSafetyChange(null);
     const id = ++requestId.current;
     setBusy(true);
     setError("");
     try {
-      const result = await api<{ routes: Route[]; message: string }>(
-        "/routes",
-        post(p),
+      const result = await api<{ routes: Route[]; message: string; limits?: { longest_loop_km: number; minimum_laps: number | null; max_laps: number } }>(
+        "/routes", post(p),
       );
       if (id !== requestId.current) return;
+      setSearchLimits(result.limits ?? null);
+      if (different && !result.routes.length) {
+        setMessage("No different route met these choices. Your current route is still selected. Try a wider area or a different lap limit.");
+        return;
+      }
+      setPlanState(p);
       setEditHistory([]);
       setRoutes(result.routes);
       setSelected(0);
@@ -284,6 +269,7 @@ export default function App() {
       setUsedPlan({ ...applied });
       setMessage(result.message);
       setHasResult(true);
+      if (window.matchMedia("(max-width: 760px)").matches && result.routes.length) mapSection.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
       if (id === requestId.current)
         setError(e instanceof Error ? e.message : "Route service unavailable.");
@@ -344,7 +330,7 @@ export default function App() {
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
       a.href = url;
-      a.download = `veld-centurion-${route.id.slice(0, 8)}${format === "osmand" ? "-android-" + laps : ""}.gpx`;
+      a.download = `verge-centurion-${route.id.slice(0, 8)}${format === "osmand" ? "-android-" + laps : ""}.gpx`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {
@@ -449,17 +435,12 @@ export default function App() {
   return (
     <>
       <header className="header">
-        <a href="#" className="brand" onClick={() => setTab("planner")}>
-          <span className="brand-icon">
-            <RouteIcon size={24} />
-          </span>
-          veld<span className="brand-period">.</span>
-        </a>
+        <button className="brand" onClick={() => setTab("planner")} aria-label="Verge route planner"><Logo/></button>
         <nav aria-label="Main navigation">
           {[
             ["planner", "Route planner"],
-            ["community", "Community"],
-            ["about", "Data & limits"],
+            ["community", "Road reports"],
+            ["about", "Data & privacy"],
           ].map(([id, label]) => (
             <button
               className={tab === id ? "nav-active" : ""}
@@ -479,44 +460,8 @@ export default function App() {
         <div className="intro">
           <div>
             <h1>Centurion cycling routes</h1>
-            <p>Choose a start, check the roads, and download a ride.</p>
+            <p>Choose a start, compare the roads, and take your route with you.</p>
           </div>
-        </div>
-        <div className="demo-banner live-banner">
-          <CircleHelp size={17} />
-          <span>
-            Mapped gates and restricted roads are excluded. Unmapped closures,
-            traffic and road conditions still need checking.
-          </span>
-        </div>
-        <div className="data-status">
-          <span>
-            {dataStatus?.available
-              ? `OSM road data · ${dataStatus.timestamp?.slice(0, 10)} · ${dataStatus.ways?.toLocaleString()} mapped ways · ${dataStatus.excluded_estates ?? 0} estate exclusions${dataStatus.access_timestamp ? ` (boundary map ${dataStatus.access_timestamp.slice(0, 10)})` : ""}`
-              : "Road data has not been downloaded yet."}
-          </span>
-          <button
-            className="text-button"
-            disabled={dataStatus?.updating}
-            onClick={async () => {
-              try {
-                await api("/data/refresh", post({}));
-                setDataStatus((d) => ({
-                  ...d,
-                  available: d?.available ?? false,
-                  error: null,
-                  updating: true,
-                }));
-              } catch (e) {
-                setError((e as Error).message);
-              }
-            }}
-          >
-            {dataStatus?.updating
-              ? "Downloading roads…"
-              : "Download / refresh roads"}
-          </button>
-          {dataStatus?.error && <span role="alert">{dataStatus.error}</span>}
         </div>
         {storageError && (
           <div className="error" role="status">
@@ -530,426 +475,15 @@ export default function App() {
         )}
         {tab === "planner" ? (
           <div className="workspace">
-            <aside className="planner">
-              <div className="panel-title">
-                <h2>Route setup</h2>
-                <SlidersHorizontal size={18} />
-              </div>
-              <p className="muted small">Start and route limits</p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  generate();
-                }}
-              >
-                <label className="field-title">Bike type</label>
-                <div className="profile-options">
-                  {[
-                    ["road", "Road", Bike],
-                    ["gravel", "Gravel", RouteIcon],
-                    ["mtb", "MTB", Mountain],
-                  ].map(([id, label, Icon]) => (
-                    <button
-                      key={String(id)}
-                      type="button"
-                      aria-pressed={plan.profile === id}
-                      className={
-                        plan.profile === id ? "profile active" : "profile"
-                      }
-                      onClick={() => update("profile", id)}
-                    >
-                      <Icon size={24} />
-                      {String(label)}
-                    </button>
-                  ))}
-                </div>
-                <label className="field-title">Route type</label>
-                <div className="segmented">
-                  {[
-                    ["loop", "Round trip"],
-                    ["point", "Point to point"],
-                  ].map(([id, label]) => (
-                    <button
-                      type="button"
-                      key={id}
-                      onClick={() => update("mode", id)}
-                      className={plan.mode === id ? "active" : ""}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <label className="field-title" htmlFor="start">
-                  Starting area
-                </label>
-                <div className="location-select">
-                  <MapPin size={17} />
-                  <select
-                    id="start"
-                    value={plan.start}
-                    onChange={(e) => {
-                      stopLocating();
-                      cancelPick();
-                      setLocationMessage("");
-                      setFocusZoom(15);
-                      setFocusPoint(
-                        places.find((p) => p.id === e.target.value)
-                          ?.coordinates ?? null,
-                      );
-                      setPlan((p) => ({
-                        ...p,
-                        start: e.target.value,
-                        start_coordinates: null,
-                        via_points: [],
-                        start_accuracy_m: null,
-                      }));
-                    }}
-                  >
-                    {places.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <span className="field-hint">
-                  {plan.start_coordinates
-                    ? `Selected: ${plan.start_coordinates[1].toFixed(5)}, ${plan.start_coordinates[0].toFixed(5)}`
-                    : "Area starts are public-road anchors, not your current location. Choose your own start below."}
-                </span>
-                <div className="point-actions">
-                  <button
-                    type="button"
-                    className="outline"
-                    onClick={() => beginPick("start")}
-                  >
-                    Choose start on map
-                  </button>
-                  <button
-                    type="button"
-                    className="outline"
-                    onClick={
-                      locating
-                        ? () => {
-                            stopLocating();
-                            setLocationMessage(
-                              "Location search cancelled. Choose your start on the map.",
-                            );
-                          }
-                        : locate
-                    }
-                  >
-                    {locating ? "Cancel location search" : "Use my location"}
-                  </button>
-                </div>
-                {plan.mode === "point" ? (
-                  <>
-                    <label className="field-title" htmlFor="destination">
-                      Destination
-                    </label>
-                    <select
-                      id="destination"
-                      value={plan.destination}
-                      onChange={(e) =>
-                        setPlan((p) => ({
-                          ...p,
-                          destination: e.target.value,
-                          destination_coordinates: null,
-                        }))
-                      }
-                    >
-                      {places.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="field-hint">
-                      {plan.destination_coordinates
-                        ? `Selected: ${plan.destination_coordinates[1].toFixed(5)}, ${plan.destination_coordinates[0].toFixed(5)}`
-                        : "Or select a destination on the map."}
-                    </span>
-                    <button
-                      type="button"
-                      className="outline"
-                      onClick={() => beginPick("destination")}
-                    >
-                      Choose destination on map
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <label
-                      className="field-title distance-label"
-                      htmlFor="distance"
-                    >
-                      Total ride distance{" "}
-                      <strong>
-                        {plan.distance} <span>km</span>
-                      </strong>
-                    </label>
-                    <input
-                      id="distance"
-                      type="range"
-                      min="5"
-                      max={MAX_RIDE_DISTANCE_KM}
-                      step="1"
-                      value={plan.distance}
-                      onChange={(e) =>
-                        update("distance", Number(e.target.value))
-                      }
-                    />
-                    <div className="range-labels">
-                      <span>5 km</span>
-                      <span>{MAX_RIDE_DISTANCE_KM} km</span>
-                    </div>
-                    <div className="distance-entry">
-                      <label htmlFor="distance-number">
-                        Distance in kilometres
-                      </label>
-                      <input
-                        id="distance-number"
-                        type="number"
-                        min="5"
-                        max={MAX_RIDE_DISTANCE_KM}
-                        step="1"
-                        key={plan.distance}
-                        defaultValue={plan.distance}
-                        onBlur={(e) => enteredDistance(e.currentTarget)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            enteredDistance(e.currentTarget);
-                          }
-                        }}
-                      />
-                    </div>
-                    <div
-                      className="training-distances"
-                      role="group"
-                      aria-label="Training distances"
-                    >
-                      {[90, 100, 180, 200].map((distance) => (
-                        <button
-                          key={distance}
-                          type="button"
-                          aria-pressed={plan.distance === distance}
-                          onClick={() => trainingDistance(distance)}
-                        >
-                          {distance} km
-                        </button>
-                      ))}
-                    </div>
-                    <p className="field-hint">
-                      Training distances set your total. Best fit chooses the
-                      loop and laps when you calculate; manual mode keeps
-                      approximately your current loop length.
-                    </p>
-                    <label className="field-title" htmlFor="loop-strategy">
-                      Loop planning
-                    </label>
-                    <select
-                      id="loop-strategy"
-                      value={plan.best_fit ? "best" : "manual"}
-                      onChange={(e) =>
-                        update("best_fit", e.target.value === "best")
-                      }
-                    >
-                      <option value="best">
-                        Best fit · risks first, then fewer laps
-                      </option>
-                      <option value="manual">Set the lap count myself</option>
-                    </select>
-                    {plan.best_fit && (
-                      <p className="field-hint">
-                        {plan.via_points.length
-                          ? "Editing points control this route and can change its distance. Clear editing points to run best fit again."
-                          : "Searches connected local roads for the highest mapped-road score, then the fewest laps. Each option reaches your distance target."}
-                      </p>
-                    )}
-                    <label className="field-title" htmlFor="laps">
-                      Laps
-                    </label>
-                    <select
-                      id="laps"
-                      value={plan.laps}
-                      onChange={(e) =>
-                        setPlan({
-                          ...plan,
-                          laps: Number(e.target.value),
-                          best_fit: false,
-                        })
-                      }
-                    >
-                      {Array.from(
-                        {
-                          length: Math.min(
-                            MAX_LAPS,
-                            Math.floor(plan.distance / MIN_LAP_DISTANCE_KM),
-                          ),
-                        },
-                        (_, i) => i + 1,
-                      ).map((n) => (
-                        <option key={n} value={n}>
-                          {n === 1
-                            ? "1 · One round trip"
-                            : `${n} laps · Repeat a shorter loop`}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="field-hint lap-hint">
-                      {plan.laps > 1
-                        ? `${plan.laps} laps × approximately ${(plan.distance / plan.laps).toFixed(1)} km per lap · ${plan.distance} km total.`
-                        : "One loop for your full ride distance."}
-                    </p>
-                  </>
-                )}
-                {plan.mode === "loop" && (
-                  <>
-                    <label className="field-title" htmlFor="ride-area">
-                      Ride area
-                    </label>
-                    <select
-                      id="ride-area"
-                      value={plan.stay_local ? "local" : "nearby"}
-                      onChange={(e) => {
-                        cancelPick();
-                        setPlan((p) => ({
-                          ...p,
-                          stay_local: e.target.value === "local",
-                          radius_km: e.target.value === "local" ? 2 : 5,
-                        }));
-                      }}
-                    >
-                      <option value="local">
-                        Connected local roads · no major-road crossings
-                      </option>
-                      <option value="nearby">
-                        Nearby roads · major-road junctions allowed
-                      </option>
-                    </select>
-                    <p className="field-hint">
-                      {plan.stay_local
-                        ? "Follows connected roads across suburb lines. Major roads stop the route; mapped bridges and underpasses can connect it."
-                        : `Allows major-road junctions within ${plan.radius_km} km of the start. These lower the mapped-road score.`}{" "}
-                      Restricted roads stay excluded.
-                    </p>
-                    {!plan.stay_local && (
-                      <>
-                        <label className="field-title" htmlFor="radius">
-                          Maximum distance from start
-                        </label>
-                        <select
-                          id="radius"
-                          value={plan.radius_km}
-                          onChange={(e) =>
-                            update("radius_km", Number(e.target.value))
-                          }
-                        >
-                          {[2, 3, 4, 5].map((n) => (
-                            <option key={n} value={n}>
-                              {n} km radius
-                            </option>
-                          ))}
-                        </select>
-                      </>
-                    )}
-                  </>
-                )}
-                {plan.mode === "point" && (
-                  <label className="check-row road-filter">
-                    <input
-                      type="checkbox"
-                      checked={plan.stay_local}
-                      onChange={(e) => update("stay_local", e.target.checked)}
-                    />
-                    Keep major-road junctions out
-                  </label>
-                )}
-                <label className="check-row road-filter">
-                  <input
-                    type="checkbox"
-                    checked={plan.stay_local || plan.avoid_main_roads}
-                    disabled={plan.stay_local}
-                    onChange={(e) =>
-                      update("avoid_main_roads", e.target.checked)
-                    }
-                  />
-                  Exclude primary/secondary roads and mapped speeds over 60 km/h
-                </label>
-
-                {plan.profile === "mtb" && (
-                  <>
-                    <label className="field-title" htmlFor="difficulty">
-                      Maximum trail difficulty
-                    </label>
-                    <select
-                      id="difficulty"
-                      value={plan.difficulty}
-                      onChange={(e) =>
-                        update("difficulty", Number(e.target.value))
-                      }
-                    >
-                      {["Easy", "Moderate", "Difficult", "Expert"].map(
-                        (d, i) => (
-                          <option value={i} key={d}>
-                            {d}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </>
-                )}
-                <details className="access-details">
-                  <summary>
-                    Access preferences <span>Optional</span>
-                  </summary>
-                  {[["paid", "Allow paid routes"]].map(([key, label]) => (
-                    <label className="check-row" key={key}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(plan[key as keyof Plan])}
-                        onChange={(e) =>
-                          update(key as keyof Plan, e.target.checked)
-                        }
-                      />
-                      {label}
-                    </label>
-                  ))}
-                  <p className="field-hint">
-                    Known private access and unresolved gates are excluded.
-                    Untagged road access is inferred from road class. Membership
-                    and visitor-only routes are not enabled.
-                  </p>
-                </details>
-                <button
-                  className="primary find-button"
-                  disabled={busy || !places.length || !!pickMode}
-                >
-                  {busy ? "Calculating routes…" : "Calculate routes"}
-                  <ArrowRight size={18} />
-                </button>
-              </form>
-              {plan.avoid_ways.length > 0 && (
-                <div className="avoided-note">
-                  {plan.avoid_ways.length} mapped roads excluded. Calculate
-                  routes to apply changes.
-                  <button
-                    className="text-button"
-                    onClick={() => {
-                      setPlan((p) => ({ ...p, avoid_ways: [] }));
-                      try {
-                        localStorage.removeItem("veld-avoided-ways");
-                      } catch {
-                        /* storage unavailable */
-                      }
-                    }}
-                  >
-                    Clear my exclusions
-                  </button>
-                </div>
-              )}{" "}
-            </aside>
+            <PlannerSetup plan={plan} places={places} busy={busy} picking={!!pickMode} locating={locating}
+              onPlan={setPlan} onPick={beginPick} onCalculate={() => generate()}
+              onLocate={locating ? () => { stopLocating(); setLocationMessage("Location search cancelled. Choose your start on the map."); } : locate}
+              onArea={(start) => {
+                stopLocating(); cancelPick(); setLocationMessage(""); setFocusZoom(15);
+                setFocusPoint(places.find(p => p.id === start)?.coordinates ?? null);
+                setPlan(p => ({ ...p, start, start_coordinates: null, via_points: [], start_accuracy_m: null }));
+              }}
+            />
             <section className="results">
               {locationDirty && !pickMode && (
                 <div className="pick-message">
@@ -979,6 +513,7 @@ export default function App() {
                   candidatePoint={candidate?.coordinates ?? candidatePoint}
                   stayLocal={plan.stay_local}
                   radiusKm={plan.radius_km}
+                  coverage={plan.coverage}
                   loop={plan.mode === "loop"}
                   editing={editing && !pickMode && !dirty && !busy}
                   onDragRoute={dragRoute}
@@ -1088,11 +623,14 @@ export default function App() {
                     {dirty ? "· Update routes to apply your changes" : ""}
                   </span>
                 </div>
-                <span className="sort-label">
-                  Mapped risks first · fewer laps next
-                </span>
+                <button className="outline refresh-routes" disabled={busy || dirty || !route || !!pickMode || !!plan.via_points.length}
+                  title={plan.via_points.length ? "Clear editing points to search for a different ride" : "Find different roads with the same ride setup"}
+                  onClick={() => generate({ ...plan, variation: (plan.variation ?? 0) + 1,
+                    exclude_routes: [...new Set([...(plan.exclude_routes ?? []), ...routes.map(r => r.fingerprint).filter((x): x is string => !!x)])].slice(-60) }, true)}>
+                  <RefreshCw size={17}/>Refresh routes
+                </button>
               </div>
-              <div className="pace-panel">
+              <details className="pace-panel"><summary>Time estimate · {speed} km/h average</summary>
                 <label className="distance-label" htmlFor="rider-speed">
                   Average riding speed{" "}
                   <strong>
@@ -1119,14 +657,16 @@ export default function App() {
                   and your average moving speed. Hills, stops, surface effects
                   and training history are not included yet.
                 </p>
-              </div>
+              </details>
               {!visibleRoutes.length && !busy && !pickMode && (
                 <div className="empty">
                   <Compass size={32} />
                   <h3>No matching route yet</h3>
                   <p>{message}</p>
+                  {searchLimits && searchLimits.longest_loop_km > 0 && <p>Longest loop found: <strong>{searchLimits.longest_loop_km} km</strong>. Try more laps or a wider area.</p>}
                 </div>
               )}
+              {message.startsWith("No different route") && <p className="search-message" role="status">{message}</p>}
               <div className="route-cards">
                 {visibleRoutes.map((r, i) => (
                   <button
@@ -1148,7 +688,7 @@ export default function App() {
                       {i === 0 ? (
                         <span className="recommended">
                           <Leaf size={11} />{" "}
-                          {r.selection ? "Best fit" : "First option"}
+                          {r.selection ? "Best match" : "First option"}
                         </span>
                       ) : (
                         <span className="selection-dot">
@@ -1195,6 +735,7 @@ export default function App() {
                         {r.laps} laps × {r.lap_distance} km per lap
                       </div>
                     )}
+                    {r.requested_distance != null && <p className="distance-fit">{r.requested_distance} km requested · {r.distance_difference_km! >= 0 ? "+" : ""}{r.distance_difference_km?.toFixed(1)} km difference</p>}
                     <div className="surface-bar">
                       {Object.entries(r.surface).map(([s, value]) => (
                         <span
@@ -1212,7 +753,7 @@ export default function App() {
                     </div>
                     {r.safety && (
                       <div className="card-safety">
-                        <strong>{r.safety.score}/100</strong>
+                        <ScoreBar score={r.safety.score} confidence="low" compact/>
                         <span>Mapped-road score</span>
                         <small>
                           {r.safety.major_junctions_per_lap} major-road
@@ -1228,8 +769,8 @@ export default function App() {
                     {r.selection && (
                       <p className="fit-explanation">
                         {i === 0
-                          ? `Highest mapped-road score, then fewest laps among ${r.selection.candidates_checked} candidates.`
-                          : "Fewer laps with a lower mapped-road score. Review the trade-off."}
+                          ? "First by mapped-road score, then lap count."
+                          : "Different roads. Compare the loop, junctions and score."}
                       </p>
                     )}
                     <div className="score-row">
@@ -1251,6 +792,10 @@ export default function App() {
               </div>
               {route && (
                 <section className="route-detail">
+                  <Notice title={route.major_road_junctions?.length ? `${route.major_road_junctions.length} major-road junctions to review` : "Check the road before riding"}
+                    source={`OpenStreetMap · ${route.data_timestamp.slice(0,10)} · Not field verified`}>
+                    {route.major_road_junctions?.length ? Array.from(new Set(route.major_road_junctions.flatMap(j => j.names))).join(", ") : "Mapped restrictions are excluded. Traffic, closures and physical access can change."}
+                  </Notice>
                   <SafetyAssessment
                     route={route}
                     updating={busy}
@@ -1369,7 +914,7 @@ export default function App() {
                               {section.name}
                             </button>{" "}
                             · {(section.distance_m / 1000).toFixed(2)} km ·{" "}
-                            {section.score}/100{" "}
+                            <ScoreBar score={section.score} confidence="low" compact/>{" "}
                             <small>
                               {section.concerns.join(" · ") ||
                                 "No deductions in mapped fields"}
@@ -1607,7 +1152,43 @@ export default function App() {
           </section>
         ) : (
           <section className="content-panel about">
-            <h2>Route data and limits</h2>
+            <h2>Data & privacy</h2>
+            <PrivacyPanel onDeleted={() => {
+              requestId.current++; setBusy(false); setPlanState({ ...initial, avoid_ways: [] });
+              setUsedPlan({ ...initial, avoid_ways: [] }); setRoutes([]); setSelected(0); setHasResult(true);
+              setEditHistory([]); setSafetyChange(null); setReports([]); setAdminReports([]); setMessage(""); setError("");
+            }}/>
+            <details className="data-details"><summary>Road data, downloads & route limits</summary>
+        <div className="data-status">
+          <span>
+            {dataStatus?.available
+              ? `OSM road data · ${dataStatus.timestamp?.slice(0, 10)} · ${dataStatus.ways?.toLocaleString()} mapped ways · ${dataStatus.excluded_estates ?? 0} estate exclusions${dataStatus.access_timestamp ? ` (boundary map ${dataStatus.access_timestamp.slice(0, 10)})` : ""}`
+              : "Road data has not been downloaded yet."}
+          </span>
+          <button
+            className="text-button"
+            disabled={dataStatus?.updating}
+            onClick={async () => {
+              try {
+                await api("/data/refresh", post({}));
+                setDataStatus((d) => ({
+                  ...d,
+                  available: d?.available ?? false,
+                  error: null,
+                  updating: true,
+                }));
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            }}
+          >
+            {dataStatus?.updating
+              ? "Downloading roads…"
+              : "Download / refresh roads"}
+          </button>
+          {dataStatus?.error && <span role="alert">{dataStatus.error}</span>}
+        </div>
+
             <p>
               Routes use a downloaded OpenStreetMap road network. Local routes
               follow connected roads across suburb boundaries, stopping at
@@ -1695,6 +1276,7 @@ export default function App() {
                 ZIP is for detailed inspection and recording your observations.
               </p>
             </div>
+
             <h3>What this pilot can do</h3>
             <p>
               Generate loops and point-to-point rides on actual OSM road
@@ -1718,12 +1300,13 @@ export default function App() {
               fetch the same Centurion rectangle for everyone. Refresh road data
               periodically and after known changes.
             </p>
+            </details>
           </section>
         )}
         <footer>
-          <span className="footer-brand">veld.</span>
-          <span>Centurion route planner.</span>
-          <span>Centurion personal pilot · v0.2</span>
+          <Logo variant="wordmark"/>
+          <button className="text-button" onClick={() => setTab("about")}>Privacy, terms & release checklist</button>
+          <span>Private preview · Public-release work remains open</span>
         </footer>
       </main>
       {modal && (

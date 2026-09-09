@@ -1,46 +1,51 @@
-# Verification · 2026-09-08
+# Verification · 2026-09-09
 
 ## Automated checks
 
-- **84 Python tests pass**: access and gates, direction and turn restrictions, full geometry bounds and polygon holes, local/nearby limits, primary/secondary and speed filtering, strict 20 m point resolution, request-local edge splitting, loops/laps, ordered editing points, turn restrictions across editing points, saved GPX geometry, OsmAnd segment/index/type tables, repeated laps, speed-only export changes, municipal feature selection, area ZIP provenance, reporting and import failure handling.
-- **21 browser tests pass with WebGL disabled**: street/satellite tiles and SVG paths, fullscreen/fit, mobile width, tile errors, confirmed start selection, immediate area change, local/nearby options, stale location-response rejection, GPS accuracy/cancellation, laps, speed slider, direct route-line and control-point dragging, road popup exclusions, undo, rejected edits, Android downloads, reports and persistent route/settings/camera. Every test also checks for uncaught browser errors.
-- Ruff lint/format and the TypeScript/Vite production build pass. Browser API fixtures use actual Rooihuiskraal geometry; external network requests are mocked in CI. Separate live checks are described below.
+- **111 Python tests pass**: access/gates, direction and turn restrictions, full geometry coverage, strict 20 m point projection, request-local edge splitting, ordered editing points, immutable GPX exports, Android segment/index/type tables, repeated laps, report moderation and import failure handling.
+- Road-based policy tests cover shared major-road junctions, geometric crossings, explicit bridge/tunnel separation, invalid layers, motorway/trunk contacts, starting inside a side road near a blocked junction, and consistent speed evidence across barriers and road exclusions.
+- Best-fit tests cover 20/90/180/200 km totals, automatic lap counts, exact loop closure, score-before-laps ordering, retention of better local candidates when expanding the search, and road-section geometry. Assessment tests cover active approved adverse reports, immutable prior scores, and repeat visits to a junction.
+- **23 browser tests pass with WebGL disabled**: road/satellite layers, fullscreen/fit, mobile layout, tile errors, confirmed start selection, stale location responses, GPS accuracy/cancellation, laps, pace, route-line/control dragging, road exclusions, undo, rejected edits, Android downloads, reports and refresh persistence. New checks cover suburb extensions, the amber road overlay, best-fit lap selection, road-section focus, and score/lap updates after accepted edits. Every test checks for uncaught browser errors.
+- Ruff lint/format and the TypeScript/Vite production build pass. Browser API fixtures use captured real-road geometry; external services are mocked in the automated suite. The separate live checks below use actual local data and map providers.
 
-Long-distance coverage also verifies 90/180/200 km requests, 100-lap Android exports, minimum lap length, totals and time across every lap, typed distance entry, training presets and restoration of routes with more than 12 laps.
+## Sources and policy
 
-Live Rooihuiskraal long-training checks: 90 km / 20 laps returned **91.6 and 88.6 km** totals; 180 km / 40 laps returned **183.2 and 177.1 km**; 200 km / 44 laps returned **201.5 and 194.8 km**. All kept the local boundary and default road restrictions. Targets remain approximate (±10%); the actual total is shown for each option.
+The road/access snapshot is `2026-09-07T14:11:06Z`, with 34,100 mapped ways and 55 estate/private-area exclusions. Routes use policy `osm-conservative-4` and assessment model `mapped-roads-v1`.
 
-## Real data checks
+The municipal reference cache contains 22 registered Rooihuiskraal township polygons. An optional label cache contains 67 registered township names across the pilot window, downloaded on 2026-09-08 with full TLS verification. Municipal polygons label routes and bound the field-data ZIP; they do not cut the routing graph. Source survey age is unknown.
 
-The OSM road/access snapshot is `2026-09-07T14:11:06Z`, with 34,100 ways, 212,773 in-bounds nodes, 55,053 retained compressed edges and 55 estate/private-area exclusions removing 4,177 edges.
+The Rooihuiskraal anchor is **Hofsanger Road, 28.1537278 E, 25.8941384 S**. Real-data checks use this start and the default road-bike/local settings. They explicitly verify that the extended route leaves the old municipal polygon while retaining zero mapped major-road contacts and a start projection within 20 m.
 
-The City of Tshwane boundary was re-downloaded on 2026-09-08 with full TLS verification. It combines **22 registered ROOIHUISKRAAL township polygons**, excluding ROOIHUISKRAAL NOORD and unregistered extensions. Source survey age is not provided. The previous Sacharia Street anchor was outside this boundary; the corrected anchor is **Hofsanger Road, 28.1537278 E, 25.8941384 S**.
+## Live best-fit results
 
-Live local API results:
+Options appear in score-first order. Distances below are rounded for display; tests validate totals from stored geometry.
 
-- Rooihuiskraal, Road, 20 km / four laps: **18.3 km total**, approximately **4.6 km per lap**, entirely inside the municipal polygon; farthest point **1.524 km** from the start.
-- 20 km / five laps: **18.9 and 19.3 km totals**, approximately **3.8 and 3.9 km per lap**; farthest points about **1.28 km** from the start. Total distance uses unrounded geometry.
-- A 10 km per-lap nearby request with main roads excluded returned no matching route. It did not relax the restrictions. Larger loops are not guaranteed in this constrained network.
-- The Rooihuiskraal ZIP contains **408 clipped road objects, 69 tagged nodes and 321 compressed segments passing the default local road-bike filters**. Source roads retain private/access tags; eligibility is supplied separately. The archive opens and contains geometry, source metadata, municipal polygons, estate exclusions and the field worksheet.
-- Standard and OsmAnd GPX retain the saved route coordinates. One-lap and five-lap Android files were saved to `data/exports/`, alongside the field pack and route metadata.
+| Requested total | Returned options: total / laps / mapped-road score |
+| --- | --- |
+| 20 km | 20.6 km / 8 / 80.0; 21.9 km / 6 / 79.6; **20.1 km / 3 / 79.4** |
+| 90 km | 91.1 km / 23 / 80.0; **95.5 km / 13 / 79.7**; **91.3 km / 12 / 79.4** |
+| 180 km | 182.3 km / 46 / 80.0; **183.6 km / 25 / 79.7**; **182.6 km / 24 / 79.4** |
+| 200 km | 202.1 km / 51 / 80.0; **205.6 km / 28 / 79.7**; **205.4 km / 27 / 79.4** |
+
+Bold options extend from **Rooihuiskraal into The Reeds**. Every listed option closes, meets 100–110% of the requested total and has zero mapped major-road junctions. A 90 km nearby search retains the 91.1 km / 23-lap / 80.0 local option. The search took approximately 0.7–0.9 seconds once the graph was loaded in this run; the first request took 4.9 seconds. This is bounded candidate search, not a global optimum guarantee.
+
+The 20.1 km extension is approximately **6.7 km per lap over three laps**. Fresh one-lap and all-lap OsmAnd files were checked for exact saved coordinates, native calculated-route metadata and track-segment counts. Files are in `data/exports/rooihuiskraal-the-reeds-android-single.gpx` and `data/exports/rooihuiskraal-the-reeds-android-all.gpx`, with the saved route JSON beside them.
+
+The refreshed Rooihuiskraal field ZIP opens without errors and contains 408 clipped road objects, 69 tagged points and 321 default eligible compressed road segments, plus source/provenance, estates and a field worksheet. Eligible side-road geometry may reach a junction which local routing cannot traverse; the archive explains that distinction.
 
 ## Live browser check
 
-An unmocked Chromium browser, with WebGL disabled, used the running local API and actual OpenStreetMap/Esri tiles. It:
+An unmocked Chromium browser with WebGL disabled used the running API and actual OpenStreetMap/Esri tiles. It selected the Rooihuiskraal–The Reeds option, loaded road and satellite overviews, and dragged a control approximately 73 m onto **Skimmer Street**. The accepted route included that road, changed the total to **16.4 km over three laps**, and updated the mapped-road score from **79.4 to 80.0**. It retained zero mapped major-road junctions. The edited-distance result is explicit; hard editing points can shorten a route below its original target.
 
-1. Confirmed Hofsanger Road as the selected start with a 0 m mapped-road offset.
-2. Dragged a route control point onto **Opperman Road**, approximately 50 m from the old control. The server included the requested road, produced an **18.0 km edited total**, and retained the Rooihuiskraal boundary.
-3. Undid the edit, loaded real satellite imagery and reference labels, fit the route, and restored identical saved geometry after refresh.
-4. Downloaded the OsmAnd one-lap file and checked a 390 px mobile viewport with no horizontal overflow.
-
-There were no uncaught browser errors. Visual review artifacts were saved as `/tmp/veld-rooihuiskraal-satellite.jpg` and `/tmp/veld-rooihuiskraal-mobile.jpg`.
+Refresh restored identical route geometry and score. A 390 px viewport had no horizontal overflow. There were no uncaught browser errors. The structured result is stored in `data/exports/live-road-cell-browser.json`. These are browser checks, not physical Android or on-bike verification.
 
 ## Practical limits
 
-- Physical Android import, spoken turns, repeated-lap guidance, off-track recalculation and a field ride have **not** been tested. OsmAnd files follow its documented calculated-route format. Roundabout exit numbers are not supplied; a route with roundabouts flags them for visual review.
-- Reported GPS accuracy ≤20 m and road projection ≤20 m are independent checks, not an absolute physical accuracy guarantee. Source roads, boundaries and imagery can contain errors.
-- No independent gate/access survey, live traffic, crime statistics, verified safety score, elevation or training-data timing model is available. Time remains distance divided by selected moving speed.
-- Nearby routes remain bounded and retain access limits. Constraints may leave no valid loop. The router may also miss possible loops; it uses bounded candidate search rather than exhaustive enumeration.
-- Route editing recalculates through ordered controls and may change other connecting roads and total distance. Road exclusions apply to an entire OSM way object, not every street sharing its name. Undo history resets on page refresh; accepted edited routes and controls persist.
-- Map tiles need internet. GPX export needs the local API/database. Browser state is specific to the browser and origin. Old-policy saved routes require recalculation before exporting.
-- Docker is unavailable locally. Two existing Starlette/AnyIO dependency deprecation warnings do not fail the tests.
+- The mapped-road score is a provisional, explainable heuristic. It is not a verified safety rating, crash probability or measure of cumulative crash exposure. Unknown live traffic, crime/security, unmapped closures and field conditions remain explicit. See the [model weights and meaning](ARCHITECTURE.md#mapped-road-assessment).
+- Road classification, geometry and bridge/access tags can be wrong or incomplete. Device-reported GPS accuracy and the separate 20 m road projection limit do not guarantee absolute physical positioning.
+- Physical Android import, spoken turns, repeated-lap guidance, off-track recalculation and an actual field ride remain untested. Roundabout exit ordinals are not supplied. OsmAnd recalculation uses its own rules.
+- Edited controls and road exclusions can change other connecting roads and total distance. Exclusions apply to an entire OSM way. Undo history resets on refresh; accepted geometry, controls and assessments persist.
+- Saved assessments retain their source snapshot. Calculate routes to assess against current cached roads and approved reports. A higher score does not establish that a road is safe to ride.
+- Time remains distance divided by selected average moving speed. Hills, stops, road effects and rider training history are not modelled yet.
+- Map tiles require internet; exports require the local API/database. Browser state is specific to its origin. Older-policy saved routes require recalculation before export.
+- Docker and physical phone navigation remain unverified. Two existing Starlette/AnyIO deprecation warnings do not fail the test suite.

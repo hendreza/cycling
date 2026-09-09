@@ -41,6 +41,7 @@ export default function RideMap({
   candidatePoint,
   stayLocal,
   radiusKm,
+  coverage,
   loop,
   editing,
   onDragRoute,
@@ -62,6 +63,7 @@ export default function RideMap({
   candidatePoint: [number, number] | null;
   stayLocal: boolean;
   radiusKm: number;
+  coverage?: "local" | "nearby" | "centurion";
   loop: boolean;
   editing: boolean;
   onDragRoute: (index: number, coordinates: [number, number]) => void;
@@ -188,6 +190,7 @@ export default function RideMap({
     const m = map.current;
     if (!m || !ready) return;
     setTileFailed(false);
+    if (basemap === "none") return;
     const satellite = basemap === "satellite";
     let failed = false;
     const base = L.tileLayer(satellite ? IMAGERY_TILES : ROAD_TILES, {
@@ -244,7 +247,7 @@ export default function RideMap({
         layer = L.geoJSON(data, {
           pane: "estates",
           style: {
-            color: "#ac6856",
+            color: "#643312",
             weight: 1,
             opacity: 0.45,
             fillOpacity: 0.13,
@@ -269,7 +272,6 @@ export default function RideMap({
     const m = map.current;
     if (!m || !ready) return;
     const group = L.layerGroup().addTo(m);
-    const satellite = basemap === "satellite";
     // Draw the selected route last so it stays visible where alternatives overlap.
     [
       ...routes.filter((_, i) => i !== selected),
@@ -278,20 +280,14 @@ export default function RideMap({
       const chosen = r === route;
       const points = r.coordinates.map(latLng);
       L.polyline(points, {
-        color: satellite ? "#17333e" : "white",
-        weight: chosen ? 9 : 6,
+        color: "#f5ead8",
+        weight: chosen ? 13 : 10,
         opacity: 0.9,
         interactive: false,
       }).addTo(group);
       L.polyline(points, {
-        color: chosen
-          ? satellite
-            ? "#50e9ff"
-            : "#226049"
-          : satellite
-            ? "#f7d189"
-            : "#aab9a5",
-        weight: chosen ? 5 : 3,
+        color: chosen ? "#c67139" : "#aa967b",
+        weight: chosen ? 8 : 5,
         opacity: chosen ? 1 : 0.8,
         interactive: false,
         className: chosen ? "selected-route-line" : "alternative-route-line",
@@ -327,7 +323,7 @@ export default function RideMap({
     const icon = (end = false) =>
       L.divIcon({
         className: `ride-pin ${end ? "end-pin" : ""}`,
-        html: "<span></span>",
+        html: end ? "<span></span>" : '<span></span><b class="start-label">Start</b>',
         iconSize: [22, 22],
         iconAnchor: [11, 11],
       });
@@ -390,7 +386,7 @@ export default function RideMap({
       if (!point) continue;
       L.circle(latLng(point), {
         radius: 20,
-        color: "#d2774e",
+        color: "#7a8a5e",
         weight: 2,
         fillOpacity: 0.08,
         interactive: false,
@@ -399,7 +395,7 @@ export default function RideMap({
         radius: 5,
         color: "#fff",
         weight: 2,
-        fillColor: "#d2774e",
+        fillColor: "#7a8a5e",
         fillOpacity: 1,
         interactive: false,
       })
@@ -430,7 +426,7 @@ export default function RideMap({
     if (majorRoads)
       L.geoJSON(majorRoads, {
         pane: "estates",
-        style: { color: "#b56d3b", weight: 2.5, opacity: 0.65 },
+        style: { color: "#643312", weight: 2.5, opacity: 0.65 },
         interactive: !pickMode,
         onEachFeature: (feature, line) => {
           const label = document.createElement("span");
@@ -438,7 +434,7 @@ export default function RideMap({
           line.bindPopup(label);
         },
       }).addTo(group);
-    if (loop && !stayLocal) {
+    if (loop && !stayLocal && coverage !== "centurion") {
       const centre =
         draftStart ||
         startCoordinates ||
@@ -461,6 +457,7 @@ export default function RideMap({
     majorRoads,
     stayLocal,
     radiusKm,
+    coverage,
     pickMode,
     loop,
     start,
@@ -468,6 +465,17 @@ export default function RideMap({
     draftStart,
     startCoordinates,
   ]);
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready || !route || pickMode) return;
+    const group = L.layerGroup().addTo(m);
+    for (const junction of route.major_road_junctions ?? []) {
+      const label = document.createElement("span");
+      label.textContent = `Major-road junction: ${junction.names.join(" / ")}. Check the crossing on the ground.`;
+      L.circleMarker(latLng(junction.coordinates), { radius: 6, color: "#f5ead8", weight: 2, fillColor: "#643312", fillOpacity: 1, className: "major-junction-marker" }).bindTooltip(label).addTo(group);
+    }
+    return () => { group.remove(); };
+  }, [route, ready, pickMode]);
   useEffect(() => {
     const m = map.current;
     if (!m || !ready || !route || !editing) return;
@@ -557,7 +565,7 @@ export default function RideMap({
       );
       if (risk) {
         const detail = document.createElement("p");
-        detail.textContent = `Mapped-road score ${risk.score}/100 · ${risk.concerns.join(", ") || "No deductions in mapped fields"}`;
+        detail.textContent = `Mapped-road score ${risk.score}/100 · Low confidence · ${risk.concerns.join(", ") || "No deductions in mapped fields"}`;
         content.append(detail);
       }
       const add = document.createElement("button");
@@ -668,6 +676,7 @@ export default function RideMap({
           >
             Satellite
           </button>
+          <button type="button" aria-pressed={basemap === "none"} onClick={() => changeBasemap("none")}>Routes only</button>
         </div>
         <button
           type="button"
@@ -685,7 +694,9 @@ export default function RideMap({
               const m = map.current;
               const place = places.find((p) => p.id === start);
               if (!m) return;
-              if (stayLocal && route) {
+              if (coverage === "centurion") {
+                m.fitBounds([[-25.985, 28.06], [-25.79, 28.275]], fitOptions);
+              } else if (stayLocal && route) {
                 m.fitBounds(bounds(route), fitOptions);
               } else {
                 const c = draftStart || startCoordinates || place?.coordinates;
@@ -752,13 +763,12 @@ export default function RideMap({
       )}
       <div className="map-note">
         <Layers size={15} />
-        {basemap === "satellite" ? "Satellite · Esri" : "OpenStreetMap basemap"}
+        {basemap === "none" ? "Local route view · no external tiles" : basemap === "satellite" ? "Satellite · Esri" : "OpenStreetMap basemap"}
         <span>
           {(route?.laps ?? 1) > 1
-            ? `One lap shown · ride ${route!.laps} times`
-            : basemap === "satellite"
-              ? "Major roads highlighted in amber"
-              : "Major roads highlighted in amber"}
+            ? `One lap shown · ride ${route!.laps} times. `
+            : ""}
+          {!!majorRoads?.features.length && "Brown lines: major roads"}
         </span>
       </div>
     </div>

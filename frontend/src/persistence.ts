@@ -40,6 +40,10 @@ function validPlan(v: unknown): v is Plan {
       (finite(v.rider_speed_kmh) &&
         v.rider_speed_kmh >= 8 &&
         v.rider_speed_kmh <= 40)) &&
+    (v.coverage === undefined || ["local", "nearby", "centurion"].includes(String(v.coverage))) &&
+    (v.max_laps === undefined || (finite(v.max_laps) && Number.isInteger(v.max_laps) && v.max_laps >= 1 && v.max_laps <= 100)) &&
+    (v.variation === undefined || (finite(v.variation) && Number.isInteger(v.variation) && v.variation >= 0 && v.variation <= 2147483647)) &&
+    (v.exclude_routes === undefined || (strings(v.exclude_routes) && v.exclude_routes.length <= 60 && v.exclude_routes.every(x => /^[a-f0-9]{64}$/.test(x)))) &&
     (v.best_fit === undefined || typeof v.best_fit === "boolean") &&
     (v.stay_local === undefined || typeof v.stay_local === "boolean") &&
     (v.avoid_main_roads === undefined ||

@@ -898,7 +898,7 @@ def test_android_speed_override_changes_time_only(client):
     assert client.get(f"/api/routes/{route['id']}/gpx?format=osmand&speed_kmh=0").status_code == 422
 
 
-@pytest.mark.parametrize("distance,laps", [(90, 20), (180, 40), (200, 100)])
+@pytest.mark.parametrize("distance,laps", [(90, 21), (180, 42), (200, 95)])
 def test_long_training_ride_totals_and_exports(client, distance, laps):
     response = client.post(
         "/api/routes",
@@ -910,7 +910,7 @@ def test_long_training_ride_totals_and_exports(client, distance, laps):
     route = routes[0]
     actual_lap = sum(km(a, b) for a, b in zip(route["coordinates"], route["coordinates"][1:]))
     assert route["laps"] == laps
-    assert abs(actual_lap * laps - distance) <= distance * 0.1
+    assert abs(actual_lap * laps - distance) <= distance * 0.03
     assert route["distance_m"] == round(actual_lap * laps * 1000)
     assert route["duration"] == round(actual_lap * laps / 25 * 60)
     assert route["coordinates"][0] == route["coordinates"][-1]

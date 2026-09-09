@@ -1,3 +1,4 @@
+import { ScoreBar, Confidence } from "./Brand";
 import type { Route } from "./types";
 export default function SafetyAssessment({
   route,
@@ -14,7 +15,7 @@ export default function SafetyAssessment({
   return (
     <section
       className="safety-assessment"
-      aria-label="Route safety assessment"
+      aria-label="Mapped-road assessment"
       aria-busy={updating}
     >
       <div className="safety-heading">
@@ -24,22 +25,20 @@ export default function SafetyAssessment({
             {updating
               ? "Updating route and assessment…"
               : safety?.confidence ||
-                "Calculate this route to check mapped risks."}
+                "Calculate this route to check mapped road data."}
           </p>
         </div>
-        <strong className="safety-value">
-          {updating ? "…" : safety ? `${safety.score}/100` : "—"}
-        </strong>
+        {updating ? <strong className="safety-value">…</strong> : safety ? <span className="safety-value"><ScoreBar score={safety.score} confidence="low"/></span> : <strong className="safety-value">—</strong>}
       </div>
       {change && !updating && (
         <p className="safety-change" role="status">
           Edit: {change.from}/100 → {change.to}/100
           {change.to < change.from
-            ? " · More mapped risk or missing data"
+            ? " · More mapped concerns or missing data"
             : change.to > change.from
               ? " · Fewer mapped deductions"
               : " · Same mapped score"}
-          .
+          . <Confidence level="low"/>
         </p>
       )}
       {dirty && (
@@ -61,13 +60,13 @@ export default function SafetyAssessment({
           </div>
           <p>
             Based on mapped roads and local reports. This is an estimate, not a
-            verified safety rating.
+            field-verified rating.
           </p>
           <details>
             <summary>Score breakdown and unknowns</summary>
             <p>
-              Starts at 100. The deductions below reduce the score; larger
-              values rank first. Scores are not crash probabilities.
+              Starts at 100. The deductions below reduce the score. Higher
+              scores rank first. Scores are not crash probabilities.
             </p>
             <ul>
               {safety.factors.map((f) => (

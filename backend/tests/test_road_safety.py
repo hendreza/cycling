@@ -137,7 +137,7 @@ def test_best_fit_completes_distance_and_preserves_closed_road_geometry(distance
     for route in result["routes"]:
         actual = sum(km(a, b) for a, b in zip(route["coordinates"], route["coordinates"][1:]))
         assert actual >= 2
-        assert distance - 1e-6 <= actual * route["laps"] <= distance * 1.1
+        assert distance - 1e-6 <= actual * route["laps"] <= distance * 1.03
         assert route["distance_m"] == round(actual * route["laps"] * 1000)
         assert route["coordinates"][0] == route["coordinates"][-1]
         assert km(route["coordinates"][0], plan.point("start")) * 1000 <= 20
@@ -236,3 +236,23 @@ def test_revisiting_a_junction_counts_every_encounter_without_double_counting_ed
     assert score["major_junctions_per_lap"] == 1
     assert score["major_junction_visits_per_lap"] == 2
     assert score["major_junction_visits"] == 6
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        {"maxspeed:forward": "80"},
+        {"maxspeed:backward": "45 mph"},
+        {"maxspeed": "60;80"},
+        {"maxspeed": "70 km/h"},
+    ],
+)
+def test_speed_barriers_and_road_exclusions_use_the_same_mapped_evidence(tags):
+    from app.osm import eligible
+    from app.road_safety import major_road, mapped_speed
+
+    tags = {"highway": "residential", **tags}
+    assert mapped_speed(tags) > 60
+    assert major_road(tags)
+    assert not eligible(tags, Plan(stay_local=False))
+    assert eligible(tags, Plan(stay_local=False, avoid_main_roads=False))

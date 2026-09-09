@@ -1,4 +1,4 @@
-export type Basemap = "road" | "satellite";
+export type Basemap = "road" | "satellite" | "none";
 export const OSM_ATTRIBUTION =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 export const IMAGERY_TILES =
@@ -8,9 +8,8 @@ export const LABEL_TILES =
 
 export function savedBasemap(): Basemap {
   try {
-    return localStorage.getItem("veld-basemap") === "satellite"
-      ? "satellite"
-      : "road";
+    const saved = localStorage.getItem("veld-basemap");
+    return saved === "satellite" || saved === "none" ? saved : "road";
   } catch {
     return "road";
   }

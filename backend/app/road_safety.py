@@ -23,13 +23,15 @@ CONNECTORS = {"tertiary", "tertiary_link", "unclassified"}
 def mapped_speed(tags):
     values = []
     for key in ("maxspeed", "maxspeed:forward", "maxspeed:backward"):
-        raw = tags.get(key, "").lower().strip()
-        try:
-            value = float(raw.replace("mph", "").strip()) * (1.609344 if "mph" in raw else 1)
-            if isfinite(value) and value > 0:
-                values.append(value)
-        except ValueError:
-            pass
+        for raw in str(tags.get(key, "")).lower().split(";"):
+            try:
+                value = float(raw.replace("mph", "").replace("km/h", "").strip()) * (
+                    1.609344 if "mph" in raw else 1
+                )
+                if isfinite(value) and value > 0:
+                    values.append(value)
+            except ValueError:
+                pass
     return max(values) if values else None
 
 

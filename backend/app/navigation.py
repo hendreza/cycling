@@ -116,7 +116,7 @@ def gpx(route, osmand=False, one_lap=False, speed_kmh=None):
     root = Element(
         "gpx",
         version="1.1",
-        creator="Veld Centurion OSM planner",
+        creator="Verge Centurion OSM planner",
         xmlns="http://www.topografix.com/GPX/1/1",
     )
     meta = SubElement(root, "metadata")

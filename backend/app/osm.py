@@ -16,6 +16,7 @@ from .navigation import navigation
 from .road_safety import RoadBarriers, assessment, major_road, safety_rank
 from .neighbourhoods import route_areas
 from .areas import locality, contains_path
+from .loop_search import search_paths, fingerprint, path_length
 from .access_zones import build_zones
 from shapely.geometry import LineString, Point
 
@@ -213,16 +214,8 @@ def node_allowed(tags):
 
 def eligible(tags, p):
     h = tags.get("highway", "")
-    if p.avoid_main_roads:
-        if h in {"primary", "primary_link", "secondary", "secondary_link"}:
-            return False
-        speed = tags.get("maxspeed", "").strip().lower()
-        try:
-            speed = float(speed.replace("mph", "").strip()) * (1.609344 if "mph" in speed else 1)
-            if speed > 60:
-                return False
-        except ValueError:
-            pass  # Unknown speed remains unknown and is disclosed in route details.
+    if p.avoid_main_roads and major_road(tags):
+        return False
     if not general_access(tags) or h not in ROADS | {
         "cycleway",
         "service",
@@ -531,146 +524,68 @@ class Graph:
         return visited
 
     def best_fit_candidates(self, p, hazards=()):
-        # Build and project once, then search the connected local network at
-        # several scales. Municipality names never prune this graph.
         search_plan = p.model_copy(update={"preference": "lower-risk"})
         graph = self.adjacency(search_plan, hazards)
         start, snap = self.snap(p.point("start"), graph)
-        reachable = self.reachable(start, graph)
-        origin = graph.nodes[start]
-        buckets = {}
-        for node in reachable:
-            if node == start:
-                continue
-            point = graph.nodes[node]
-            distance = km(origin, point)
-            if distance < 0.25 or distance > p.distance * 0.45:
-                continue
-            bearing = (
-                int((atan2(point[1] - origin[1], point[0] - origin[0]) + pi) / (2 * pi) * 12) % 12
-            )
-            # Keep near and far candidates in each distance band and direction.
-            ring = next(
-                (i for i, limit in enumerate((0.5, 1, 2, 3, 5, 8, 12, 20)) if distance <= limit), 8
-            )
-            key = (bearing, ring)
-            if key not in buckets or distance > buckets[key][0]:
-                buckets[key] = (distance, node)
-        pivots = [n for _, n in sorted(buckets.values(), reverse=True)]
-        # Interleave near/far so a finite search budget includes short alternatives.
-        ordered = []
-        while pivots and len(ordered) < 72:
-            ordered.append(pivots.pop(0))
-            if pivots and len(ordered) < 72:
-                ordered.append(pivots.pop())
+        paths, reachable_count = search_paths(self, graph, start, p)
         candidates = []
-        seen = set()
-
-        def add(path):
-            if not path:
-                return
-            first = path[0][0].points[-1 if path[0][1] else 0]
-            last = path[-1][0].points[0 if path[-1][1] else -1]
-            if first != last:
-                return
-            length = sum(e.length for e, _ in path)
-            if length < 2 or length > p.distance * 1.1:
-                return
-            ids = {e.id for e, _ in path}
-            if (length - sum({e.id: e.length for e, _ in path}.values())) / length > 0.18:
-                return
-            signature = tuple(sorted(ids))
-            if signature in seen:
-                return
-            seen.add(signature)
-            laps = max(1, ceil((p.distance - 1e-8) / length))
-            if laps > 100 or length * laps > p.distance * 1.1:
-                return
+        longest = max((path_length(path) for path in paths), default=0)
+        for path in paths:
+            length = path_length(path)
+            laps = max(1, ceil((p.distance - 1e-8) / length)) if p.best_fit else p.laps
+            if laps > p.max_laps or length * laps > p.distance * (1 + p.distance_tolerance):
+                continue
+            if length * laps < p.distance * (1 if p.best_fit else 1 - p.distance_tolerance):
+                continue
             applied = p.model_copy(update={"laps": laps})
             route = self.describe(path, applied, snap, snap, hazards, detail=False)
             route["distance_over_target_m"] = round((length * laps - p.distance) * 1000)
             route["requested_distance"] = p.distance
-            candidates.append((route, ids))
-
-        outbound = {}
-        for pivot in ordered:
-            found = self.shortest(start, pivot, graph)
-            if not found or not found[0]:
-                continue
-            path = found[0]
-            outbound[pivot] = path
-            back = self.shortest(
-                pivot,
-                start,
-                graph,
-                {e.id for e, _ in path},
-                initial_way=path[-1][0].way,
-                final_way=path[0][0].way,
-            )
-            if back:
-                add(path + back[0])
-        # Three-leg loops join two branches, opening more connected local roads
-        # than an out-and-return search. Retain turn state at both joins.
-        far = [n for n in ordered if n in outbound]
-        pair_keys = set()
-        for i, a in enumerate(far[:24]):
-            for b in far[i + 1 : i + 5]:
-                key = (a, b)
-                if key in pair_keys or km(graph.nodes[a], graph.nodes[b]) < 0.6:
-                    continue
-                pair_keys.add(key)
-                first = outbound[a]
-                middle = self.shortest(
-                    a, b, graph, {e.id for e, _ in first}, initial_way=first[-1][0].way
-                )
-                if not middle or not middle[0]:
-                    continue
-                path = first + middle[0]
-                if sum(e.length for e, _ in path) >= p.distance * 1.1:
-                    continue
-                back = self.shortest(
-                    b,
-                    start,
-                    graph,
-                    {e.id for e, _ in path},
-                    initial_way=path[-1][0].way,
-                    final_way=path[0][0].way,
-                )
-                if back:
-                    add(path + back[0])
-        return candidates, len(reachable)
+            route["distance_difference_km"] = round(length * laps - p.distance, 2)
+            if route["fingerprint"] not in p.exclude_routes:
+                candidates.append((route, {e.id for e, _ in path}))
+        return candidates, reachable_count, longest
 
     def best_fit_routes(self, p, hazards=()):
-        candidates, connected_nodes = self.best_fit_candidates(p, hazards)
+        candidates, connected_nodes, longest = self.best_fit_candidates(p, hazards)
         if not p.stay_local:
             # Widening the search must retain valid local options. Otherwise
             # changed distance/bearing samples can discard a better local loop.
-            local, _ = self.best_fit_candidates(p.model_copy(update={"stay_local": True}), hazards)
+            local, _, local_longest = self.best_fit_candidates(
+                p.model_copy(update={"stay_local": True, "coverage": "local"}), hazards
+            )
+            longest = max(longest, local_longest)
             area = locality(p)
             for route, ids in local:
                 if contains_path(area, route["coordinates"]):
                     route["locality"].update(kind=area["kind"], name=area["name"])
                     candidates.append((route, ids))
         candidates.sort(key=lambda item: safety_rank(item[0]))
+        # Keep the top score as the recommendation, while exposing the useful
+        # fewest-laps trade-off instead of three near-identical short loops.
         chosen = []
-        for route, ids in candidates:
-            if any(
-                previous["safety"]["score"] >= route["safety"]["score"]
-                and previous["laps"] <= route["laps"]
-                for previous, _ in chosen
-            ):
-                continue
-            if any(
-                len(ids & previous) / max(1, len(ids | previous)) > 0.9 for _, previous in chosen
-            ):
-                continue
-            chosen.append((route, ids))
-            if len(chosen) == 3:
-                break
+        def distinct(item):
+            return not any(
+                len(item[1] & previous) / max(1, len(item[1] | previous)) > 0.82
+                for _, previous in chosen
+            )
+        if candidates:
+            chosen.append(candidates[0])
+            longer = sorted(candidates, key=lambda item: (item[0]["laps"], safety_rank(item[0])))
+            for item in longer:
+                if distinct(item):
+                    chosen.append(item)
+                    break
+            for item in candidates:
+                if len(chosen) >= 3:
+                    break
+                if distinct(item):
+                    chosen.append(item)
+        chosen.sort(key=lambda item: safety_rank(item[0]))
         for route, _ in chosen:
             self.enrich(route)
             route["selection"] = {
-                "strategy": "best_fit",
+                "strategy": "best_fit" if p.best_fit else "fixed_laps",
                 "priority": ["Mapped-road score", "Fewest laps", "Closest total above target"],
                 "candidates_checked": len(candidates),
                 "connected_nodes": connected_nodes,
@@ -679,16 +594,21 @@ class Graph:
             }
         return {
             "routes": [r for r, _ in chosen],
+            "limits": {
+                "longest_loop_km": round(longest, 1),
+                "minimum_laps": ceil(p.distance / longest) if longest else None,
+                "max_laps": p.max_laps,
+            },
             "demo": False,
             "source": "OpenStreetMap",
             "data_timestamp": self.timestamp,
-            "message": "Best fit: mapped-road score first, then fewer laps. Each option completes at least the requested distance."
+            "message": ("Best fit: mapped-road score first, then fewer laps. Totals meet your target within 3%." if p.best_fit else "Routes use your chosen lap count. Compare the actual totals with your target.")
             if chosen
             else "No complete-loop match fits these road and distance limits. Try a different start or distance. Road access and major-road restrictions were kept.",
         }
 
     def routes(self, p, hazards=()):
-        if p.best_fit and p.mode == "loop" and not p.via_points:
+        if p.mode == "loop" and not p.via_points:
             return self.best_fit_routes(p, hazards)
         target_distance = p.distance / p.laps if p.mode == "loop" else p.distance
         graph = self.adjacency(p, hazards)
@@ -953,6 +873,7 @@ class Graph:
         junctions = safety["major_junctions"]
         return {
             "id": "",
+            "fingerprint": fingerprint(coords),
             "name": f"{p.start.replace('-', ' ').title()} · {max(roads.values(), key=lambda r: r['distance'])['name']}",
             "locality": {
                 "enforced": area is not None,

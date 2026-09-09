@@ -42,6 +42,8 @@ def get_area(area_id):
 def locality(plan):
     if plan.mode != "loop":
         return None
+    if plan.coverage == "centurion":
+        return {"kind": "coverage", "name": "Across Centurion", "point": plan.point("start")}
     if not plan.stay_local:
         return {
             "kind": "radius",
@@ -57,7 +59,7 @@ def locality(plan):
 
 
 def contains_path(area, points):
-    if area is None or area["kind"] == "road_cell":
+    if area is None or area["kind"] in {"road_cell", "coverage"}:
         return True
     if area["kind"] == "boundary":
         return area["polygon"].covers(LineString(points))

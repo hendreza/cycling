@@ -6,10 +6,12 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import BoundedSemaphore
 from typing import Literal
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field
 from .routing import PLACES, Plan
 from . import osm
@@ -17,13 +19,45 @@ from .areas import public_area
 from .navigation import gpx
 from .area_pack import area_data, download_pack
 
-app = FastAPI(title="Veld · Centurion cycling pilot", version="0.2.0")
+app = FastAPI(title="Verge · Centurion cycling pilot", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-Admin-Key"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type", "X-Admin-Key", "X-Verge-Local-Action"],
 )
+
+# This is a private, single-owner service. These browser protections do not
+# replace authentication, which is required before exposing a public service.
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["localhost", "127.0.0.1", "[::1]", "backend", "testserver"]
+    + [h.strip() for h in os.getenv("VERGE_ALLOWED_HOSTS", "").split(",") if h.strip()],
+)
+LOCAL_ORIGINS = {"http://localhost:5173", "http://127.0.0.1:5173"}
+LOCAL_ORIGINS.update(o.strip() for o in os.getenv("VERGE_ALLOWED_ORIGINS", "").split(",") if o.strip())
+route_slots = BoundedSemaphore(2)
+
+
+@app.middleware("http")
+async def private_service_headers(request: Request, call_next):
+    origin = request.headers.get("origin")
+    same_origin = f"{request.url.scheme}://{request.headers.get('host', '')}"
+    if request.url.path.startswith("/api/"):
+        if origin and origin not in LOCAL_ORIGINS and origin != same_origin:
+            return JSONResponse({"detail": "This private app does not accept requests from that website."}, status_code=403)
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.headers.get("sec-fetch-site") == "cross-site":
+            return JSONResponse({"detail": "Cross-site changes are disabled."}, status_code=403)
+        if request.url.path.startswith("/api/privacy/") and request.headers.get("x-verge-local-action") != "1":
+            return JSONResponse({"detail": "Open Data & privacy in the local app."}, status_code=403)
+        if request.method == "POST" and not request.headers.get("content-type", "").startswith("application/json"):
+            return JSONResponse({"detail": "Use a JSON request."}, status_code=415)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @contextmanager
@@ -32,6 +66,7 @@ def db():
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA secure_delete=ON")
     connection.executescript("""
         CREATE TABLE IF NOT EXISTS reports (
             id INTEGER PRIMARY KEY, segment_id TEXT NOT NULL, category TEXT NOT NULL,
@@ -48,6 +83,32 @@ def db():
         connection.commit()
     finally:
         connection.close()
+
+
+@app.get("/api/privacy/data")
+def private_data_summary():
+    with db() as conn:
+        return {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in ("saved_routes", "reports", "audit")}
+
+
+@app.get("/api/privacy/export")
+def private_data_export():
+    with db() as conn:
+        data = {table: [dict(row) for row in conn.execute(f"SELECT * FROM {table}")]
+                for table in ("saved_routes", "reports", "audit")}
+    for route in data["saved_routes"]:
+        route["payload"] = json.loads(route["payload"])
+        route["request"] = json.loads(route["request"])
+    return {"app": "Verge", "exported_at": datetime.now(timezone.utc).isoformat(), "data": data}
+
+
+@app.delete("/api/privacy/data")
+def delete_private_data():
+    with db() as conn:
+        for table in ("audit", "reports", "saved_routes"):
+            conn.execute(f"DELETE FROM {table}")
+    return {"message": "Saved routes, reports and moderation history deleted from this app. Downloaded files and backups are separate."}
 
 
 @app.get("/api/health")
@@ -167,7 +228,12 @@ def routes(request: Plan):
             }
             for row in adverse
         ]
-        result = osm.get_graph().routes(request, hazards)
+        if not route_slots.acquire(blocking=False):
+            raise HTTPException(429, "Two route searches are already running. Try again shortly.")
+        try:
+            result = osm.get_graph().routes(request, hazards)
+        finally:
+            route_slots.release()
     except FileNotFoundError as exc:
         raise HTTPException(503, str(exc)) from exc
     except ValueError as exc:
@@ -213,7 +279,7 @@ def export(
         document,
         media_type="application/gpx+xml",
         headers={
-            "Content-Disposition": f'attachment; filename="veld-centurion-{route_id[:8]}.gpx"'
+            "Content-Disposition": f'attachment; filename="verge-centurion-{route_id[:8]}.gpx"'
         },
     )
 

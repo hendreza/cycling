@@ -45,6 +45,11 @@ class Plan(BaseModel):
     distance: float = Field(default=20, ge=5, le=MAX_RIDE_DISTANCE_KM)
     laps: int = Field(default=1, ge=1, le=MAX_LAPS)
     best_fit: bool = False
+    coverage: Literal["local", "nearby", "centurion"] | None = None
+    max_laps: int = Field(default=100, ge=1, le=MAX_LAPS)
+    variation: int = Field(default=0, ge=0, le=2147483647)
+    exclude_routes: list[str] = Field(default_factory=list, max_length=60)
+    distance_tolerance: float = Field(default=0.03, ge=0.01, le=0.1)
     stay_local: bool = True
     radius_km: float = Field(default=2, ge=0.5, le=5)
     avoid_main_roads: bool = True
@@ -59,6 +64,13 @@ class Plan(BaseModel):
 
     @model_validator(mode="after")
     def validate_points(self):
+        if self.coverage is not None:
+            self.stay_local = self.coverage == "local"
+        if any(
+            len(value) != 64 or any(c not in "0123456789abcdef" for c in value)
+            for value in self.exclude_routes
+        ):
+            raise ValueError("Invalid route comparison fingerprint.")
         if any(not inside(c) for c in self.via_points):
             raise ValueError("Route editing points must be inside Centurion coverage.")
         if self.start_accuracy_m is not None and self.start_coordinates is None:

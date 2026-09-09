@@ -11,6 +11,11 @@ export type Plan = {
   distance: number;
   laps: number;
   best_fit: boolean;
+  coverage?: "local" | "nearby" | "centurion";
+  max_laps?: number;
+  variation?: number;
+  exclude_routes?: string[];
+  distance_tolerance?: number;
   stay_local: boolean;
   radius_km: number;
   avoid_main_roads: boolean;
@@ -56,6 +61,9 @@ export type Safety = {
   basis: string;
 };
 export type Route = {
+  fingerprint?: string;
+  requested_distance?: number;
+  distance_difference_km?: number;
   safety?: Safety;
   best_fit?: boolean;
   selection?: {
