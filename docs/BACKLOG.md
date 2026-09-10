@@ -1,4 +1,7 @@
-# Remaining work after the personal real-road release
+# Verge remaining work
+
+**Private testing continues. Public release is not ready.** The owner requested that legal and operational work remain visible. The authoritative open list is [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md), repeated in the app under Data & privacy. No checklist item is silently closed by this redesign.
+
 
 ## Completed
 
@@ -33,9 +36,12 @@
 - [x] Reject coarse GPS readings and show the chosen start radius.
 - [x] Road/satellite overview without WebGL, lap loops, persistent current route and adjustable moving-time estimates.
 - [ ] Import rider training data and calibrate segment times against sourced elevation, road/surface tags and rider history, retaining model provenance and uncertainty.
-- [ ] Improve loop generation for constrained networks and richer alternative diversity.
+- [x] Extend bounded loop search, preserve useful fewer-lap alternatives, tighten distance matching and add genuine route refresh.
+- [ ] Continue improving search completeness for difficult networks without weakening access constraints.
 - [ ] Add sourced elevation and a height profile, preserving missing coverage.
-- [ ] Add a saved-rides library, favourite starts and data-retention controls.
+- [x] Add local data export/deletion, privacy notice and a visible public-release checklist.
+- [x] Apply the supplied Verge brand kit, local fonts, route outlines and score/confidence components.
+- [ ] Add a saved-rides library, favourite starts and a configurable retention schedule.
 - [ ] Add route-distance progress and full import progress/error diagnostics.
 - [ ] Add secure phone access if desired; current transfer method is GPX.
 

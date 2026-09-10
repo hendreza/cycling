@@ -106,7 +106,7 @@ test("real route details, profile, exact GPX and local reports", async ({
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export GPX", exact: true }).click();
   expect((await downloadPromise).suggestedFilename()).toMatch(
-    /^veld-centurion-.*\.gpx$/,
+    /^verge-centurion-.*\.gpx$/,
   );
   await page.getByRole("button", { name: "Add a community report" }).click();
   await page
@@ -151,6 +151,7 @@ test("map selection, remembered road exclusion and mobile layout", async ({
   );
   await page.getByText(/Inspect roads & avoid a section/).click();
   await page.getByRole("button", { name: "Avoid this road" }).first().click();
+  await page.locator(".ride-options summary").click();
   await expect(page.getByText(/1 mapped roads excluded/)).toBeVisible();
   const planning = page.waitForRequest(
     (r) => new URL(r.url()).pathname === "/api/routes" && r.method() === "POST",
@@ -160,6 +161,7 @@ test("map selection, remembered road exclusion and mobile layout", async ({
   expect(body.start_coordinates).toHaveLength(2);
   expect(body.avoid_ways).toHaveLength(1);
   await page.reload();
+  await page.locator(".ride-options summary").click();
   await expect(page.getByText(/1 mapped roads excluded/)).toBeVisible();
   await page.screenshot({ path: "/tmp/veld-real-mobile.png", fullPage: true });
 });
@@ -198,7 +200,8 @@ test("desktop map render and current approach", async ({ page }) => {
   ).toBeGreaterThan(300);
   await expect(page.getByRole("button", { name: "Map marker" })).toBeVisible();
   await page.screenshot({ path: "/tmp/veld-real-desktop.png", fullPage: true });
-  await page.getByRole("button", { name: "Data & limits" }).click();
+  await page.getByRole("button", { name: "Data & privacy" }).click();
+  await page.locator(".data-details > summary").click();
   await expect(
     page.getByRole("heading", { name: "What to check before your first ride" }),
   ).toBeVisible();
@@ -324,9 +327,10 @@ test("refresh restores the chosen lap route, draft settings and map view without
   await page.goto("/");
   await expect(page.locator(".route-card")).toHaveCount(routes.routes.length);
   await page.getByLabel("Total ride distance").fill("60");
+  await page.getByLabel("Loop planning").selectOption("manual");
   await page.getByLabel("Laps", { exact: true }).selectOption("3");
   await expect(page.locator(".lap-hint")).toContainText(
-    "3 laps × approximately 20.0 km per lap · 60 km total",
+    "3 laps × approximately 20.0 km · 60 km total",
   );
   const planning = page.waitForRequest(
     (r) => new URL(r.url()).pathname === "/api/routes" && r.method() === "POST",
@@ -408,6 +412,7 @@ test("lap count follows distance limits and point-to-point resets to one", async
 }) => {
   await page.goto("/");
   await expect(page.locator(".route-card").first()).toBeVisible();
+  await page.getByLabel("Loop planning").selectOption("manual");
   await page.getByLabel("Laps", { exact: true }).selectOption("8");
   await page.getByLabel("Total ride distance").fill("5");
   await expect(page.getByLabel("Laps", { exact: true })).toHaveValue("2");
@@ -415,6 +420,8 @@ test("lap count follows distance limits and point-to-point resets to one", async
     .getByRole("button", { name: "Point to point", exact: true })
     .click();
   await expect(page.getByLabel("Laps", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Ride area", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Keep major-road junctions out")).toBeChecked();
   const request = page.waitForRequest(
     (r) => new URL(r.url()).pathname === "/api/routes" && r.method() === "POST",
   );
@@ -478,7 +485,7 @@ test("road and satellite tiles and route SVG render with WebGL disabled", async 
   ).toBeVisible();
   await expect(page.locator("svg .selected-route-line")).toHaveAttribute(
     "stroke",
-    "#50e9ff",
+    "#c67139",
   );
   await expect(page.locator(".map-error")).toHaveCount(0);
   await page.getByRole("button", { name: "Enter fullscreen" }).click();
@@ -494,7 +501,7 @@ test("road and satellite tiles and route SVG render with WebGL disabled", async 
   await page.getByRole("button", { name: "Fit route", exact: true }).click();
   await expect(page.locator("svg .selected-route-line")).toHaveAttribute(
     "stroke",
-    "#226049",
+    "#c67139",
   );
 });
 
@@ -603,6 +610,7 @@ test("rider pace immediately updates moving time and persists without changing t
     .nth(1)
     .locator(".stats > div")
     .nth(2);
+  await page.locator(".pace-panel > summary").click();
   await page.getByLabel("Average riding speed").fill("10");
   const distance = routes.routes[1].distance_m / 1000;
   await expect(time).toContainText(`${Math.round((distance / 10) * 60)} min`);
@@ -688,6 +696,7 @@ test("local laps and nearby radius are explicit setup choices", async ({
     "local",
   );
   await page.getByLabel("Ride area", { exact: true }).selectOption("nearby");
+  await page.locator(".ride-options summary").click();
   await page.getByLabel("Maximum distance from start").selectOption("3");
   const request = page.waitForRequest(
     (r) => new URL(r.url()).pathname === "/api/routes" && r.method() === "POST",
@@ -935,47 +944,32 @@ test("late road match cannot replace the last point selected", async ({
   );
 });
 
-test("long training presets, typed distance and many-lap rides survive refresh", async ({
+test("long training defaults widen coverage and remember explicit lap choices", async ({
   page,
 }) => {
   let plans = 0;
   await page.route("**/api/routes", (r) => {
     plans++;
-    const p = r.request().postDataJSON();
-    return r.fulfill({
-      json: {
-        ...routes,
-        routes: routes.routes.map((route: any) => ({
-          ...route,
-          laps: p.laps,
-          distance: Math.round((route.lap_distance_m * p.laps) / 100) / 10,
-          distance_m: route.lap_distance_m * p.laps,
-          duration: Math.round(
-            ((route.lap_distance_m * p.laps) / 1000 / 20) * 60,
-          ),
-        })),
-      },
-    });
+    return r.fulfill({ json: routes });
   });
   await page.goto("/");
   await expect(page.locator(".route-card").first()).toBeVisible();
-  await expect(page.getByLabel("Total ride distance")).toHaveAttribute(
-    "max",
-    "200",
-  );
-  for (const distance of [90, 180]) {
+  for (const [distance, cap] of [
+    [90, 3],
+    [180, 6],
+  ]) {
     await page
       .getByRole("button", { name: `${distance} km`, exact: true })
       .click();
     await expect(page.getByLabel("Total ride distance")).toHaveValue(
       String(distance),
     );
-    const laps = Number(
-      await page.getByLabel("Laps", { exact: true }).inputValue(),
+    await expect(page.getByLabel("Ride area", { exact: true })).toHaveValue(
+      "centurion",
     );
-    expect(laps).toBeGreaterThan(12);
-    expect(distance / laps).toBeGreaterThanOrEqual(2);
-    expect(distance / laps).toBeLessThan(5);
+    await expect(page.getByLabel("Maximum laps", { exact: true })).toHaveValue(
+      String(cap),
+    );
     const request = page.waitForRequest(
       (r) =>
         new URL(r.url()).pathname === "/api/routes" && r.method() === "POST",
@@ -983,35 +977,39 @@ test("long training presets, typed distance and many-lap rides survive refresh",
     await page.getByRole("button", { name: "Calculate routes" }).click();
     expect((await request).postDataJSON()).toMatchObject({
       distance,
-      laps,
-      stay_local: true,
+      max_laps: cap,
+      coverage: "centurion",
+      stay_local: false,
       avoid_main_roads: true,
     });
-    await expect(page.locator(".lap-detail")).toContainText(`all ${laps} laps`);
+    await expect(page.locator(".route-card").first()).toBeVisible();
   }
   const snapshot = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("veld-session-v1")!),
   );
   await page.reload();
-  await expect(page.locator(".route-card").first()).toBeVisible();
-  expect(plans).toBe(3);
-  await expect(page.getByLabel("Total ride distance")).toHaveValue("180");
-  await expect(page.getByLabel("Laps", { exact: true })).toHaveValue(
-    String(snapshot.plan.laps),
+  await expect(page.getByLabel("Maximum laps", { exact: true })).toHaveValue(
+    "6",
   );
+  expect(plans).toBe(3);
   expect(
     await page.evaluate(
       () => JSON.parse(localStorage.getItem("veld-session-v1")!).routes,
     ),
   ).toEqual(snapshot.routes);
+  await page.getByLabel("Maximum laps", { exact: true }).selectOption("2");
+  await page.getByRole("button", { name: "90 km", exact: true }).click();
+  await expect(page.getByLabel("Maximum laps", { exact: true })).toHaveValue(
+    "2",
+  );
   await page.getByRole("button", { name: "200 km", exact: true }).click();
+  await page.getByLabel("Loop planning").selectOption("manual");
   await page.getByLabel("Laps", { exact: true }).selectOption("100");
   await expect(page.locator(".lap-hint")).toContainText(
     "100 laps × approximately 2.0 km",
   );
   await page.getByLabel("Distance in kilometres").fill("94");
   await page.getByLabel("Distance in kilometres").press("Enter");
-  await expect(page.getByLabel("Total ride distance")).toHaveValue("94");
   await expect(page.getByLabel("Laps", { exact: true })).toHaveValue("47");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
@@ -1045,13 +1043,13 @@ test("best fit explains road-connected suburbs and remembers the chosen lap trad
   await page.goto("/");
   await expect(page.locator(".route-card")).toHaveCount(3);
   await expect(page.getByLabel("Loop planning")).toHaveValue("best");
-  await expect(page.getByLabel("Laps", { exact: true })).toHaveValue(
-    String(bestFit.routes[0].laps),
+  await expect(page.locator(".route-card.selected")).toContainText(
+    `${bestFit.routes[0].laps} laps`,
   );
   await expect(page.locator(".route-card").first()).toContainText(
-    "Highest mapped-road score, then fewest laps",
+    "First by mapped-road score, then lap count.",
   );
-  await expect(page.locator('path[stroke="#b56d3b"]').first()).toBeAttached();
+  await expect(page.locator('path[stroke="#643312"]').first()).toBeAttached();
   // Only roads are drawn in the reference overlay; municipal polygon fills are absent.
   expect(
     await page
@@ -1059,7 +1057,7 @@ test("best fit explains road-connected suburbs and remembers the chosen lap trad
       .evaluateAll((paths) =>
         paths.every(
           (p) =>
-            p.getAttribute("stroke") === "#b56d3b" &&
+            p.getAttribute("stroke") === "#643312" &&
             p.getAttribute("fill") === "none",
         ),
       ),
@@ -1069,17 +1067,17 @@ test("best fit explains road-connected suburbs and remembers the chosen lap trad
   await expect(page.locator(".route-card").nth(2)).toContainText(
     "Rooihuiskraal → The Reeds",
   );
-  await expect(page.getByLabel("Laps", { exact: true })).toHaveValue(
-    String(choice.laps),
+  await expect(page.locator(".route-card.selected")).toContainText(
+    `${choice.laps} laps`,
   );
-  await expect(page.locator(".safety-value")).toHaveText(
+  await expect(page.locator(".safety-value .score-number")).toHaveText(
     `${choice.safety.score}/100`,
   );
   await page.getByText("Score breakdown and unknowns", { exact: true }).click();
-  await expect(page.getByLabel("Route safety assessment")).toContainText(
+  await expect(page.getByLabel("Mapped-road assessment")).toContainText(
     "Security/crime conditions",
   );
-  await expect(page.getByLabel("Route safety assessment")).toContainText(
+  await expect(page.getByLabel("Mapped-road assessment")).toContainText(
     "0 major-road junctions per lap",
   );
   await page
@@ -1103,7 +1101,7 @@ test("best fit explains road-connected suburbs and remembers the chosen lap trad
     "aria-pressed",
     "true",
   );
-  await expect(page.locator(".safety-value")).toHaveText(
+  await expect(page.locator(".safety-value .score-number")).toHaveText(
     `${choice.safety.score}/100`,
   );
   expect(plans).toBe(1);
@@ -1114,7 +1112,7 @@ test("accepted edits replace the assessment and laps together; failed edits pres
 }) => {
   await page.route("**/api/routes", (r) => r.fulfill({ json: bestFit }));
   await page.goto("/");
-  await expect(page.locator(".safety-value")).toHaveText(
+  await expect(page.locator(".safety-value .score-number")).toHaveText(
     `${bestFit.routes[0].safety.score}/100`,
   );
   await page
@@ -1142,19 +1140,21 @@ test("accepted edits replace the assessment and laps together; failed edits pres
     });
   });
   await dragFirstPoint(page);
-  await expect(page.getByLabel("Route safety assessment")).toHaveAttribute(
+  await expect(page.getByLabel("Mapped-road assessment")).toHaveAttribute(
     "aria-busy",
     "true",
   );
   await expect(page.locator(".safety-value")).toHaveText("…");
   release();
   const score = bestFit.routes[1].safety.score;
-  await expect(page.locator(".safety-value")).toHaveText(`${score}/100`);
+  await expect(page.locator(".safety-value .score-number")).toHaveText(
+    `${score}/100`,
+  );
   await expect(page.locator(".safety-change")).toContainText(
     `Edit: ${bestFit.routes[0].safety.score}/100 → ${score}/100`,
   );
-  await expect(page.getByLabel("Laps", { exact: true })).toHaveValue(
-    String(bestFit.routes[1].laps),
+  await expect(page.locator(".route-card.selected")).toContainText(
+    `${bestFit.routes[1].laps} laps`,
   );
   const accepted = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("veld-session-v1")!),
@@ -1170,15 +1170,246 @@ test("accepted edits replace the assessment and laps together; failed edits pres
   await expect(page.getByRole("alert")).toContainText(
     "Your previous route is still selected",
   );
-  await expect(page.locator(".safety-value")).toHaveText(`${score}/100`);
+  await expect(page.locator(".safety-value .score-number")).toHaveText(
+    `${score}/100`,
+  );
   const failed = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("veld-session-v1")!),
   );
   expect(failed.plan).toEqual(accepted.plan);
   expect(failed.routes).toEqual(accepted.routes);
   await page.reload();
-  await expect(page.locator(".safety-value")).toHaveText(`${score}/100`);
-  await expect(page.getByLabel("Laps", { exact: true })).toHaveValue(
-    String(bestFit.routes[1].laps),
+  await expect(page.locator(".safety-value .score-number")).toHaveText(
+    `${score}/100`,
+  );
+  await expect(page.locator(".route-card.selected")).toContainText(
+    `${bestFit.routes[1].laps} laps`,
+  );
+});
+
+test("refresh requests different roads, saves the selection and preserves it when exhausted", async ({
+  page,
+}) => {
+  const novel = bestFit.routes.find(
+    (r: any) =>
+      !routes.routes.some((old: any) => old.fingerprint === r.fingerprint),
+  );
+  expect(novel).toBeTruthy();
+  let calls = 0;
+  const requests: any[] = [];
+  await page.route("**/api/routes", (r) => {
+    calls++;
+    requests.push(r.request().postDataJSON());
+    return r.fulfill({
+      json:
+        calls === 1
+          ? routes
+          : calls === 2
+            ? { ...bestFit, routes: [novel] }
+            : { routes: [], message: "No further alternatives" },
+    });
+  });
+  await page.goto("/");
+  await expect(page.locator(".route-card")).toHaveCount(routes.routes.length);
+  await page
+    .getByRole("button", { name: "Refresh routes", exact: true })
+    .click();
+  await expect(page.locator(".route-card")).toHaveCount(1);
+  expect(requests[1].exclude_routes).toEqual(
+    routes.routes.map((r: any) => r.fingerprint),
+  );
+  expect(requests[1].variation).toBe(1);
+  await expect(page.locator(".route-card.selected")).toContainText(novel.name);
+  await page.reload();
+  await expect(page.locator(".route-card.selected")).toContainText(novel.name);
+  expect(calls).toBe(2);
+  const previous = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("veld-session-v1")!).routes,
+  );
+  await page
+    .getByRole("button", { name: "Refresh routes", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText(
+    "Your current route is still selected",
+  );
+  expect(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem("veld-session-v1")!).routes,
+    ),
+  ).toEqual(previous);
+  await page
+    .getByRole("button", { name: "Refresh routes", exact: true })
+    .click();
+  await expect.poll(() => calls).toBe(4);
+  expect(requests[3].variation).toBeGreaterThan(requests[2].variation);
+});
+
+test("routes-only map and local fonts make no external requests", async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem("veld-basemap", "none"));
+  const external: string[] = [];
+  page.on("request", (r) => {
+    if (new URL(r.url()).origin !== "http://127.0.0.1:5173")
+      external.push(r.url());
+  });
+  await page.goto("/");
+  await expect(page.locator(".selected-route-line")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Routes only", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.evaluate(() => document.fonts.ready);
+  expect(
+    await page.evaluate(
+      () =>
+        document.fonts.check("16px Figtree") &&
+        document.fonts.check("24px Caprasimo"),
+    ),
+  ).toBe(true);
+  expect(external).toEqual([]);
+  await expect(page.locator(".leaflet-tile")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".selected-route-line")).toBeVisible();
+  await expect(page.locator(".leaflet-tile")).toHaveCount(0);
+});
+
+test("privacy controls export locally, require deletion confirmation and keep release work visible", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      value: {
+        watchPosition(success: (p: any) => void) {
+          (window as any).sendLateLocation = () =>
+            success({
+              coords: {
+                longitude: 28.1537278,
+                latitude: -25.8941384,
+                accuracy: 5,
+              },
+            });
+          return 1;
+        },
+        clearWatch() {
+          (window as any).locationWatchCleared = true;
+        },
+      },
+    });
+  });
+  let deletions = 0,
+    exports = 0;
+  await page.route("**/api/privacy/**", async (r) => {
+    expect(await r.request().headerValue("x-verge-local-action")).toBe("1");
+    if (r.request().method() === "DELETE") {
+      deletions++;
+      return r.fulfill({ json: { message: "Deleted" } });
+    }
+    if (r.request().url().endsWith("/export")) {
+      exports++;
+      return r.fulfill({
+        json: {
+          app: "Verge",
+          data: {
+            saved_routes: [{ id: "local-record" }],
+            reports: [],
+            audit: [],
+          },
+        },
+      });
+    }
+    return r.fulfill({
+      json: { saved_routes: deletions ? 0 : 5, reports: 0, audit: 0 },
+    });
+  });
+  await page.goto("/");
+  await expect(page.locator(".route-card").first()).toBeVisible();
+  await page
+    .getByRole("button", { name: "Use my location", exact: true })
+    .click();
+  await page.evaluate(() =>
+    localStorage.setItem("unrelated-app-key", "keep-me"),
+  );
+  await page
+    .getByRole("button", { name: "Data & privacy", exact: true })
+    .click();
+  await expect(page.getByText("5 saved route snapshots")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Work that stays on the list" }),
+  ).toBeVisible();
+  await expect(page.locator(".release-checklist .open-tag")).toHaveCount(7);
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Export my app data", exact: true })
+    .click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe("verge-private-data.json");
+  const data = JSON.parse(readFileSync((await file.path())!, "utf8"));
+  expect(data.data.saved_routes[0].id).toBe("local-record");
+  expect(
+    JSON.parse(data.browser["veld-session-v1"]).routes.length,
+  ).toBeGreaterThan(0);
+  expect(exports).toBe(1);
+  await page
+    .getByRole("button", { name: "Delete my app data", exact: true })
+    .click();
+  expect(deletions).toBe(0);
+  await page
+    .getByRole("group", { name: "Confirm data deletion" })
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  expect(deletions).toBe(0);
+  await page
+    .getByRole("button", { name: "Delete my app data", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Delete all app records", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText(
+    "App records and this browser’s ride history cleared",
+  );
+  expect(deletions).toBe(1);
+  expect(
+    await page.evaluate(() => localStorage.getItem("unrelated-app-key")),
+  ).toBe("keep-me");
+  expect(await page.evaluate(() => (window as any).locationWatchCleared)).toBe(
+    true,
+  );
+  await page.evaluate(() => (window as any).sendLateLocation());
+  const state = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("veld-session-v1")!),
+  );
+  expect(state.routes).toEqual([]);
+  expect(state.plan.start_coordinates).toBeUndefined();
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Work that stays on the list" }),
+  ).toBeVisible();
+  await expect(page.locator(".release-checklist .open-tag")).toHaveCount(7);
+  await expect(page.getByText("0 saved route snapshots")).toBeVisible();
+});
+
+test("major-road junction markers show the selected route's actual crossing points", async ({
+  page,
+}) => {
+  const option = {
+    ...routes.routes[0],
+    major_road_junctions: [
+      {
+        coordinates: routes.routes[0].coordinates[5],
+        names: ["Fixture main road"],
+      },
+    ],
+  };
+  await page.route("**/api/routes", (r) =>
+    r.fulfill({ json: { ...routes, routes: [option] } }),
+  );
+  await page.goto("/");
+  await expect(page.locator(".major-junction-marker")).toHaveCount(1);
+  await page.locator(".major-junction-marker").hover();
+  await expect(
+    page.getByText("Major-road junction: Fixture main road.", { exact: false }),
+  ).toBeVisible();
+  await expect(page.locator(".notice")).toContainText(
+    "1 major-road junction to review",
   );
 });

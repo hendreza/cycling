@@ -533,7 +533,9 @@ class Graph:
         for path in paths:
             length = path_length(path)
             laps = max(1, ceil((p.distance - 1e-8) / length)) if p.best_fit else p.laps
-            if laps > p.max_laps or length * laps > p.distance * (1 + p.distance_tolerance):
+            if (p.best_fit and laps > p.max_laps) or length * laps > p.distance * (
+                1 + p.distance_tolerance
+            ):
                 continue
             if length * laps < p.distance * (1 if p.best_fit else 1 - p.distance_tolerance):
                 continue
@@ -564,11 +566,13 @@ class Graph:
         # Keep the top score as the recommendation, while exposing the useful
         # fewest-laps trade-off instead of three near-identical short loops.
         chosen = []
+
         def distinct(item):
             return not any(
                 len(item[1] & previous) / max(1, len(item[1] | previous)) > 0.82
                 for _, previous in chosen
             )
+
         if candidates:
             chosen.append(candidates[0])
             longer = sorted(candidates, key=lambda item: (item[0]["laps"], safety_rank(item[0])))
@@ -597,12 +601,16 @@ class Graph:
             "limits": {
                 "longest_loop_km": round(longest, 1),
                 "minimum_laps": ceil(p.distance / longest) if longest else None,
-                "max_laps": p.max_laps,
+                "max_laps": p.max_laps if p.best_fit else p.laps,
             },
             "demo": False,
             "source": "OpenStreetMap",
             "data_timestamp": self.timestamp,
-            "message": ("Best fit: mapped-road score first, then fewer laps. Totals meet your target within 3%." if p.best_fit else "Routes use your chosen lap count. Compare the actual totals with your target.")
+            "message": (
+                f"Best fit: mapped-road score first, then fewer laps. Totals meet your target within {p.distance_tolerance * 100:g}%."
+                if p.best_fit
+                else "Routes use your chosen lap count. Compare the actual totals with your target."
+            )
             if chosen
             else "No complete-loop match fits these road and distance limits. Try a different start or distance. Road access and major-road restrictions were kept.",
         }
@@ -747,6 +755,8 @@ class Graph:
         assessed.sort(key=lambda item: safety_rank(item[0]))
         chosen = []
         for route, ids in assessed:
+            if route["fingerprint"] in p.exclude_routes:
+                continue
             if any(len(ids & prev) / max(1, len(ids | prev)) > 0.82 for _, prev in chosen):
                 continue
             chosen.append((route, ids))

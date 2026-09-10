@@ -24,16 +24,12 @@ import {
   Bike,
   Check,
   ChevronRight,
-  CircleHelp,
   Compass,
   Flag,
   Leaf,
   Layers,
   MapPin,
-  Mountain,
-  Route as RouteIcon,
   ShieldCheck,
-  SlidersHorizontal,
   X,
 } from "lucide-react";
 
@@ -55,9 +51,15 @@ const post = (body: unknown) => ({
   body: JSON.stringify(body),
 });
 
+const lapKm = (r: Route) =>
+  ((r.lap_distance_m ?? (r.lap_distance ?? r.distance) * 1000) / 1000).toFixed(
+    2,
+  );
+
 export default function App() {
   const [restored] = useState(restoreSession);
   const requestId = useRef(0);
+  const variationId = useRef(restored.plan.variation ?? 0);
   const [plan, setPlanState] = useState<Plan>(restored.plan);
   function setPlan(value: Plan | ((p: Plan) => Plan)) {
     requestId.current++;
@@ -202,7 +204,11 @@ export default function App() {
   const [selected, setSelected] = useState(restored.selected);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [searchLimits, setSearchLimits] = useState<{ longest_loop_km: number; minimum_laps: number | null; max_laps: number } | null>(null);
+  const [searchLimits, setSearchLimits] = useState<{
+    longest_loop_km: number;
+    minimum_laps: number | null;
+    max_laps: number;
+  } | null>(null);
   const [message, setMessage] = useState(restored.message);
   const [tab, setTab] = useState(restored.tab);
   const [modal, setModal] = useState(false);
@@ -248,13 +254,21 @@ export default function App() {
     setBusy(true);
     setError("");
     try {
-      const result = await api<{ routes: Route[]; message: string; limits?: { longest_loop_km: number; minimum_laps: number | null; max_laps: number } }>(
-        "/routes", post(p),
-      );
+      const result = await api<{
+        routes: Route[];
+        message: string;
+        limits?: {
+          longest_loop_km: number;
+          minimum_laps: number | null;
+          max_laps: number;
+        };
+      }>("/routes", post(p));
       if (id !== requestId.current) return;
       setSearchLimits(result.limits ?? null);
       if (different && !result.routes.length) {
-        setMessage("No different route met these choices. Your current route is still selected. Try a wider area or a different lap limit.");
+        setMessage(
+          "No different route met these choices. Your current route is still selected. Try a wider area or a different lap limit.",
+        );
         return;
       }
       setPlanState(p);
@@ -269,7 +283,14 @@ export default function App() {
       setUsedPlan({ ...applied });
       setMessage(result.message);
       setHasResult(true);
-      if (window.matchMedia("(max-width: 760px)").matches && result.routes.length) mapSection.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (
+        window.matchMedia("(max-width: 760px)").matches &&
+        result.routes.length
+      )
+        mapSection.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
     } catch (e) {
       if (id === requestId.current)
         setError(e instanceof Error ? e.message : "Route service unavailable.");
@@ -435,7 +456,13 @@ export default function App() {
   return (
     <>
       <header className="header">
-        <button className="brand" onClick={() => setTab("planner")} aria-label="Verge route planner"><Logo/></button>
+        <button
+          className="brand"
+          onClick={() => setTab("planner")}
+          aria-label="Verge route planner"
+        >
+          <Logo />
+        </button>
         <nav aria-label="Main navigation">
           {[
             ["planner", "Route planner"],
@@ -460,9 +487,25 @@ export default function App() {
         <div className="intro">
           <div>
             <h1>Centurion cycling routes</h1>
-            <p>Choose a start, compare the roads, and take your route with you.</p>
+            <p>
+              Choose a start, compare the roads, and take your route with you.
+            </p>
           </div>
         </div>
+        {tab === "planner" && route && (
+          <button
+            className="outline mobile-route-jump"
+            onClick={() =>
+              mapSection.current?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+              })
+            }
+          >
+            <Compass size={16} />
+            View selected route · {route.distance} km
+          </button>
+        )}
         {storageError && (
           <div className="error" role="status">
             {storageError}
@@ -475,13 +518,40 @@ export default function App() {
         )}
         {tab === "planner" ? (
           <div className="workspace">
-            <PlannerSetup plan={plan} places={places} busy={busy} picking={!!pickMode} locating={locating}
-              onPlan={setPlan} onPick={beginPick} onCalculate={() => generate()}
-              onLocate={locating ? () => { stopLocating(); setLocationMessage("Location search cancelled. Choose your start on the map."); } : locate}
+            <PlannerSetup
+              plan={plan}
+              places={places}
+              busy={busy}
+              picking={!!pickMode}
+              locating={locating}
+              onPlan={setPlan}
+              onPick={beginPick}
+              onCalculate={() => generate()}
+              onLocate={
+                locating
+                  ? () => {
+                      stopLocating();
+                      setLocationMessage(
+                        "Location search cancelled. Choose your start on the map.",
+                      );
+                    }
+                  : locate
+              }
               onArea={(start) => {
-                stopLocating(); cancelPick(); setLocationMessage(""); setFocusZoom(15);
-                setFocusPoint(places.find(p => p.id === start)?.coordinates ?? null);
-                setPlan(p => ({ ...p, start, start_coordinates: null, via_points: [], start_accuracy_m: null }));
+                stopLocating();
+                cancelPick();
+                setLocationMessage("");
+                setFocusZoom(15);
+                setFocusPoint(
+                  places.find((p) => p.id === start)?.coordinates ?? null,
+                );
+                setPlan((p) => ({
+                  ...p,
+                  start,
+                  start_coordinates: null,
+                  via_points: [],
+                  start_accuracy_m: null,
+                }));
               }}
             />
             <section className="results">
@@ -623,14 +693,45 @@ export default function App() {
                     {dirty ? "· Update routes to apply your changes" : ""}
                   </span>
                 </div>
-                <button className="outline refresh-routes" disabled={busy || dirty || !route || !!pickMode || !!plan.via_points.length}
-                  title={plan.via_points.length ? "Clear editing points to search for a different ride" : "Find different roads with the same ride setup"}
-                  onClick={() => generate({ ...plan, variation: (plan.variation ?? 0) + 1,
-                    exclude_routes: [...new Set([...(plan.exclude_routes ?? []), ...routes.map(r => r.fingerprint).filter((x): x is string => !!x)])].slice(-60) }, true)}>
-                  <RefreshCw size={17}/>Refresh routes
+                <button
+                  className="outline refresh-routes"
+                  disabled={
+                    busy ||
+                    dirty ||
+                    !route ||
+                    !!pickMode ||
+                    !!plan.via_points.length
+                  }
+                  title={
+                    plan.via_points.length
+                      ? "Clear editing points to search for a different ride"
+                      : "Find different roads with the same ride setup"
+                  }
+                  onClick={() =>
+                    generate(
+                      {
+                        ...plan,
+                        variation: (variationId.current =
+                          (variationId.current + 1) % 2147483647),
+                        exclude_routes: [
+                          ...new Set([
+                            ...(plan.exclude_routes ?? []),
+                            ...routes
+                              .map((r) => r.fingerprint)
+                              .filter((x): x is string => !!x),
+                          ]),
+                        ].slice(-60),
+                      },
+                      true,
+                    )
+                  }
+                >
+                  <RefreshCw size={17} />
+                  Refresh routes
                 </button>
               </div>
-              <details className="pace-panel"><summary>Time estimate · {speed} km/h average</summary>
+              <details className="pace-panel">
+                <summary>Time estimate · {speed} km/h average</summary>
                 <label className="distance-label" htmlFor="rider-speed">
                   Average riding speed{" "}
                   <strong>
@@ -663,10 +764,20 @@ export default function App() {
                   <Compass size={32} />
                   <h3>No matching route yet</h3>
                   <p>{message}</p>
-                  {searchLimits && searchLimits.longest_loop_km > 0 && <p>Longest loop found: <strong>{searchLimits.longest_loop_km} km</strong>. Try more laps or a wider area.</p>}
+                  {searchLimits && searchLimits.longest_loop_km > 0 && (
+                    <p>
+                      Longest loop found:{" "}
+                      <strong>{searchLimits.longest_loop_km} km</strong>. Try
+                      more laps or a wider area.
+                    </p>
+                  )}
                 </div>
               )}
-              {message.startsWith("No different route") && <p className="search-message" role="status">{message}</p>}
+              {message.startsWith("No different route") && (
+                <p className="search-message" role="status">
+                  {message}
+                </p>
+              )}
               <div className="route-cards">
                 {visibleRoutes.map((r, i) => (
                   <button
@@ -710,7 +821,7 @@ export default function App() {
                       <div>
                         <strong>
                           {(r.laps ?? 1) > 1
-                            ? r.lap_distance
+                            ? lapKm(r)
                             : (r.locality?.max_distance_from_start_km.toFixed(
                                 1,
                               ) ?? "—")}
@@ -732,10 +843,16 @@ export default function App() {
                     </div>
                     {(r.laps ?? 1) > 1 && (
                       <div className="lap-summary">
-                        {r.laps} laps × {r.lap_distance} km per lap
+                        {r.laps} laps × approx. {lapKm(r)} km per lap
                       </div>
                     )}
-                    {r.requested_distance != null && <p className="distance-fit">{r.requested_distance} km requested · {r.distance_difference_km! >= 0 ? "+" : ""}{r.distance_difference_km?.toFixed(1)} km difference</p>}
+                    {r.requested_distance != null && (
+                      <p className="distance-fit">
+                        {r.requested_distance} km requested ·{" "}
+                        {r.distance_difference_km! >= 0 ? "+" : ""}
+                        {r.distance_difference_km?.toFixed(1)} km difference
+                      </p>
+                    )}
                     <div className="surface-bar">
                       {Object.entries(r.surface).map(([s, value]) => (
                         <span
@@ -753,7 +870,11 @@ export default function App() {
                     </div>
                     {r.safety && (
                       <div className="card-safety">
-                        <ScoreBar score={r.safety.score} confidence="low" compact/>
+                        <ScoreBar
+                          score={r.safety.score}
+                          confidence="low"
+                          compact
+                        />
                         <span>Mapped-road score</span>
                         <small>
                           {r.safety.major_junctions_per_lap} major-road
@@ -792,9 +913,21 @@ export default function App() {
               </div>
               {route && (
                 <section className="route-detail">
-                  <Notice title={route.major_road_junctions?.length ? `${route.major_road_junctions.length} major-road junctions to review` : "Check the road before riding"}
-                    source={`OpenStreetMap · ${route.data_timestamp.slice(0,10)} · Not field verified`}>
-                    {route.major_road_junctions?.length ? Array.from(new Set(route.major_road_junctions.flatMap(j => j.names))).join(", ") : "Mapped restrictions are excluded. Traffic, closures and physical access can change."}
+                  <Notice
+                    title={
+                      route.major_road_junctions?.length
+                        ? `${route.major_road_junctions.length} major-road ${route.major_road_junctions.length === 1 ? "junction" : "junctions"} to review`
+                        : "Check the road before riding"
+                    }
+                    source={`OpenStreetMap · ${route.data_timestamp.slice(0, 10)} · Not field verified`}
+                  >
+                    {route.major_road_junctions?.length
+                      ? Array.from(
+                          new Set(
+                            route.major_road_junctions.flatMap((j) => j.names),
+                          ),
+                        ).join(", ")
+                      : "Mapped restrictions are excluded. Traffic, closures and physical access can change."}
                   </Notice>
                   <SafetyAssessment
                     route={route}
@@ -818,10 +951,10 @@ export default function App() {
                   </div>
                   {(route.laps ?? 1) > 1 && (
                     <p className="lap-detail">
-                      Ride this {route.lap_distance} km loop {route.laps} times
-                      for {route.distance} km total. The map shows one lap; the
-                      GPX includes all {route.laps} laps as separate track
-                      segments.
+                      Ride this approximately {lapKm(route)} km loop{" "}
+                      {route.laps} times for {route.distance} km total. The map
+                      shows one lap; the GPX includes all {route.laps} laps as
+                      separate track segments.
                     </p>
                   )}
                   <details className="phone-guide">
@@ -914,7 +1047,11 @@ export default function App() {
                               {section.name}
                             </button>{" "}
                             · {(section.distance_m / 1000).toFixed(2)} km ·{" "}
-                            <ScoreBar score={section.score} confidence="low" compact/>{" "}
+                            <ScoreBar
+                              score={section.score}
+                              confidence="low"
+                              compact
+                            />{" "}
                             <small>
                               {section.concerns.join(" · ") ||
                                 "No deductions in mapped fields"}
@@ -1153,159 +1290,185 @@ export default function App() {
         ) : (
           <section className="content-panel about">
             <h2>Data & privacy</h2>
-            <PrivacyPanel onDeleted={() => {
-              requestId.current++; setBusy(false); setPlanState({ ...initial, avoid_ways: [] });
-              setUsedPlan({ ...initial, avoid_ways: [] }); setRoutes([]); setSelected(0); setHasResult(true);
-              setEditHistory([]); setSafetyChange(null); setReports([]); setAdminReports([]); setMessage(""); setError("");
-            }}/>
-            <details className="data-details"><summary>Road data, downloads & route limits</summary>
-        <div className="data-status">
-          <span>
-            {dataStatus?.available
-              ? `OSM road data · ${dataStatus.timestamp?.slice(0, 10)} · ${dataStatus.ways?.toLocaleString()} mapped ways · ${dataStatus.excluded_estates ?? 0} estate exclusions${dataStatus.access_timestamp ? ` (boundary map ${dataStatus.access_timestamp.slice(0, 10)})` : ""}`
-              : "Road data has not been downloaded yet."}
-          </span>
-          <button
-            className="text-button"
-            disabled={dataStatus?.updating}
-            onClick={async () => {
-              try {
-                await api("/data/refresh", post({}));
-                setDataStatus((d) => ({
-                  ...d,
-                  available: d?.available ?? false,
-                  error: null,
-                  updating: true,
-                }));
-              } catch (e) {
-                setError((e as Error).message);
-              }
-            }}
-          >
-            {dataStatus?.updating
-              ? "Downloading roads…"
-              : "Download / refresh roads"}
-          </button>
-          {dataStatus?.error && <span role="alert">{dataStatus.error}</span>}
-        </div>
-
-            <p>
-              Routes use a downloaded OpenStreetMap road network. Local routes
-              follow connected roads across suburb boundaries, stopping at
-              major-road junctions. Mapped bridges and underpasses can connect
-              roads on opposite sides. Suburb names describe the ride; they do
-              not cut it into separate areas.
-            </p>
-            <div className="principles">
-              <article>
-                <ShieldCheck />
-                <h3>Road access</h3>
-                <p>
-                  Mapped private and prohibited access, unresolved gates and
-                  roads under construction are excluded. Missing access tags on
-                  ordinary roads are treated as an inference, not independent
-                  verification.
-                </p>
-              </article>
-              <article>
-                <Bike />
-                <h3>Bike profiles</h3>
-                <p>
-                  Road profiles exclude known unpaved surfaces. Gravel allows
-                  suitable unpaved roads. MTB only adds access-eligible trails
-                  with compatible mapped difficulty.
-                </p>
-              </article>
-              <article>
-                <Layers />
-                <h3>Missing data</h3>
-                <p>
-                  The mapped-road score is a published heuristic. Its deductions
-                  are shown for every route. Live traffic, security conditions
-                  and field checks are unknown.
-                </p>
-              </article>
-            </div>
-            <div className="area-download">
-              <h3>Rooihuiskraal field data</h3>
-              <p>
-                Download the municipal boundary, detailed road geometry and
-                tags, mapped gates and signals, excluded estates, and a
-                worksheet for your test rides.
-              </p>
-              {areaStats && (
-                <p>
-                  {areaStats.road_count} mapped roads · {areaStats.tagged_nodes}{" "}
-                  tagged points · {areaStats.eligible_segments} road segments
-                  pass the default local filters. Road data:{" "}
-                  {new Date(areaStats.road_timestamp).toLocaleDateString()}.
-                </p>
-              )}
-              <p>
-                Includes Rooihuiskraal’s registered township extensions.
-                Rooihuiskraal Noord is separate. These are map records, not a
-                field survey.
-              </p>
-              <p>
-                <a
-                  href="https://e-gis003.tshwane.gov.za/server/rest/services/Other_WS/Land_Boundaries/MapServer/1"
-                  target="_blank"
-                  rel="noreferrer"
+            <PrivacyPanel
+              onDeleted={() => {
+                stopLocating();
+                cancelPick();
+                setFocusPoint(null);
+                setLocationMessage("");
+                setAdminKey("");
+                setModal(false);
+                requestId.current++;
+                setBusy(false);
+                setPlanState({ ...initial, avoid_ways: [] });
+                setUsedPlan({ ...initial, avoid_ways: [] });
+                setRoutes([]);
+                setSelected(0);
+                setHasResult(true);
+                setEditHistory([]);
+                setSafetyChange(null);
+                setReports([]);
+                setAdminReports([]);
+                setMessage("");
+                setError("");
+              }}
+            />
+            <details className="data-details">
+              <summary>Road data, downloads & route limits</summary>
+              <div className="data-status">
+                <span>
+                  {dataStatus?.available
+                    ? `OSM road data · ${dataStatus.timestamp?.slice(0, 10)} · ${dataStatus.ways?.toLocaleString()} mapped ways · ${dataStatus.excluded_estates ?? 0} estate exclusions${dataStatus.access_timestamp ? ` (boundary map ${dataStatus.access_timestamp.slice(0, 10)})` : ""}`
+                    : "Road data has not been downloaded yet."}
+                </span>
+                <button
+                  className="text-button"
+                  disabled={dataStatus?.updating}
+                  onClick={async () => {
+                    try {
+                      await api("/data/refresh", post({}));
+                      setDataStatus((d) => ({
+                        ...d,
+                        available: d?.available ?? false,
+                        error: null,
+                        updating: true,
+                      }));
+                    } catch (e) {
+                      setError((e as Error).message);
+                    }
+                  }}
                 >
-                  City of Tshwane boundary source
-                </a>{" "}
-                · Boundary download:{" "}
-                {places.find((p) => p.id === "rooihuiskraal")?.area
-                  ?.downloaded_at
-                  ? new Date(
-                      places.find((p) => p.id === "rooihuiskraal")!.area!
-                        .downloaded_at,
-                    ).toLocaleDateString()
-                  : "unavailable"}
-                . Survey date is not supplied.
-              </p>
-              <a
-                className="outline"
-                href="/api/areas/rooihuiskraal/download"
-                download
-              >
-                Download Rooihuiskraal data · ZIP
-              </a>
-              <p>
-                For an offline Android basemap, download the map in OsmAnd. This
-                ZIP is for detailed inspection and recording your observations.
-              </p>
-            </div>
+                  {dataStatus?.updating
+                    ? "Downloading roads…"
+                    : "Download / refresh roads"}
+                </button>
+                {dataStatus?.error && (
+                  <span role="alert">{dataStatus.error}</span>
+                )}
+              </div>
 
-            <h3>What this pilot can do</h3>
-            <p>
-              Generate loops and point-to-point rides on actual OSM road
-              geometry. Planning happens locally. Mapped private access,
-              unresolved gates, motorways, cycling prohibitions and turn
-              restrictions are filtered. You can choose your own map points and
-              exclude roads you know you want to avoid.
-            </p>
-            <h3>What to check before your first ride</h3>
-            <p>
-              Inspect the route and its start point. Ordinary road access is
-              inferred where OSM has no explicit access tag; estate boundaries
-              and gates may be missing. Surface tags can be incomplete. There is
-              no live traffic, verified safety score or emergency assistance.
-              Android guidance uses the downloaded OsmAnd route. Roundabout exit
-              numbers are not supplied; check the highlighted track.
-            </p>
-            <p>
-              Routes and your selected coordinates stay on this computer. The
-              map background is requested from OpenStreetMap or Esri; downloads
-              fetch the same Centurion rectangle for everyone. Refresh road data
-              periodically and after known changes.
-            </p>
+              <p>
+                Routes use a downloaded OpenStreetMap road network. Local routes
+                follow connected roads across suburb boundaries, stopping at
+                major-road junctions. Mapped bridges and underpasses can connect
+                roads on opposite sides. Suburb names describe the ride; they do
+                not cut it into separate areas.
+              </p>
+              <div className="principles">
+                <article>
+                  <ShieldCheck />
+                  <h3>Road access</h3>
+                  <p>
+                    Mapped private and prohibited access, unresolved gates and
+                    roads under construction are excluded. Missing access tags
+                    on ordinary roads are treated as an inference, not
+                    independent verification.
+                  </p>
+                </article>
+                <article>
+                  <Bike />
+                  <h3>Bike profiles</h3>
+                  <p>
+                    Road profiles exclude known unpaved surfaces. Gravel allows
+                    suitable unpaved roads. MTB only adds access-eligible trails
+                    with compatible mapped difficulty.
+                  </p>
+                </article>
+                <article>
+                  <Layers />
+                  <h3>Missing data</h3>
+                  <p>
+                    The mapped-road score is a published heuristic. Its
+                    deductions are shown for every route. Live traffic, security
+                    conditions and field checks are unknown.
+                  </p>
+                </article>
+              </div>
+              <div className="area-download">
+                <h3>Rooihuiskraal field data</h3>
+                <p>
+                  Download the municipal boundary, detailed road geometry and
+                  tags, mapped gates and signals, excluded estates, and a
+                  worksheet for your test rides.
+                </p>
+                {areaStats && (
+                  <p>
+                    {areaStats.road_count} mapped roads ·{" "}
+                    {areaStats.tagged_nodes} tagged points ·{" "}
+                    {areaStats.eligible_segments} road segments pass the default
+                    local filters. Road data:{" "}
+                    {new Date(areaStats.road_timestamp).toLocaleDateString()}.
+                  </p>
+                )}
+                <p>
+                  Includes Rooihuiskraal’s registered township extensions.
+                  Rooihuiskraal Noord is separate. These are map records, not a
+                  field survey.
+                </p>
+                <p>
+                  <a
+                    href="https://e-gis003.tshwane.gov.za/server/rest/services/Other_WS/Land_Boundaries/MapServer/1"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    City of Tshwane boundary source
+                  </a>{" "}
+                  · Boundary download:{" "}
+                  {places.find((p) => p.id === "rooihuiskraal")?.area
+                    ?.downloaded_at
+                    ? new Date(
+                        places.find((p) => p.id === "rooihuiskraal")!.area!
+                          .downloaded_at,
+                      ).toLocaleDateString()
+                    : "unavailable"}
+                  . Survey date is not supplied.
+                </p>
+                <a
+                  className="outline"
+                  href="/api/areas/rooihuiskraal/download"
+                  download
+                >
+                  Download Rooihuiskraal data · ZIP
+                </a>
+                <p>
+                  For an offline Android basemap, download the map in OsmAnd.
+                  This ZIP is for detailed inspection and recording your
+                  observations.
+                </p>
+              </div>
+
+              <h3>What this pilot can do</h3>
+              <p>
+                Generate loops and point-to-point rides on actual OSM road
+                geometry. Planning happens locally. Mapped private access,
+                unresolved gates, motorways, cycling prohibitions and turn
+                restrictions are filtered. You can choose your own map points
+                and exclude roads you know you want to avoid.
+              </p>
+              <h3>What to check before your first ride</h3>
+              <p>
+                Inspect the route and its start point. Ordinary road access is
+                inferred where OSM has no explicit access tag; estate boundaries
+                and gates may be missing. Surface tags can be incomplete. There
+                is no live traffic, verified safety score or emergency
+                assistance. Android guidance uses the downloaded OsmAnd route.
+                Roundabout exit numbers are not supplied; check the highlighted
+                track.
+              </p>
+              <p>
+                Routes and your selected coordinates stay on this computer. The
+                map background is requested from OpenStreetMap or Esri;
+                downloads fetch the same Centurion rectangle for everyone.
+                Refresh road data periodically and after known changes.
+              </p>
             </details>
           </section>
         )}
         <footer>
-          <Logo variant="wordmark"/>
-          <button className="text-button" onClick={() => setTab("about")}>Privacy, terms & release checklist</button>
+          <Logo variant="wordmark" />
+          <button className="text-button" onClick={() => setTab("about")}>
+            Privacy, terms & release checklist
+          </button>
           <span>Private preview · Public-release work remains open</span>
         </footer>
       </main>

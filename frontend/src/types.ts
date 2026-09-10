@@ -13,6 +13,7 @@ export type Plan = {
   best_fit: boolean;
   coverage?: "local" | "nearby" | "centurion";
   max_laps?: number;
+  lap_limit_custom?: boolean;
   variation?: number;
   exclude_routes?: string[];
   distance_tolerance?: number;

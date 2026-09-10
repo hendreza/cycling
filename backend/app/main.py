@@ -6,7 +6,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, RLock
 from typing import Literal
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,8 +35,12 @@ app.add_middleware(
     + [h.strip() for h in os.getenv("VERGE_ALLOWED_HOSTS", "").split(",") if h.strip()],
 )
 LOCAL_ORIGINS = {"http://localhost:5173", "http://127.0.0.1:5173"}
-LOCAL_ORIGINS.update(o.strip() for o in os.getenv("VERGE_ALLOWED_ORIGINS", "").split(",") if o.strip())
+LOCAL_ORIGINS.update(
+    o.strip() for o in os.getenv("VERGE_ALLOWED_ORIGINS", "").split(",") if o.strip()
+)
 route_slots = BoundedSemaphore(2)
+records_lock = RLock()
+records_epoch = 0
 
 
 @app.middleware("http")
@@ -45,12 +49,25 @@ async def private_service_headers(request: Request, call_next):
     same_origin = f"{request.url.scheme}://{request.headers.get('host', '')}"
     if request.url.path.startswith("/api/"):
         if origin and origin not in LOCAL_ORIGINS and origin != same_origin:
-            return JSONResponse({"detail": "This private app does not accept requests from that website."}, status_code=403)
-        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.headers.get("sec-fetch-site") == "cross-site":
+            return JSONResponse(
+                {"detail": "This private app does not accept requests from that website."},
+                status_code=403,
+            )
+        if (
+            request.method in {"POST", "PUT", "PATCH", "DELETE"}
+            and request.headers.get("sec-fetch-site") == "cross-site"
+        ):
             return JSONResponse({"detail": "Cross-site changes are disabled."}, status_code=403)
-        if request.url.path.startswith("/api/privacy/") and request.headers.get("x-verge-local-action") != "1":
-            return JSONResponse({"detail": "Open Data & privacy in the local app."}, status_code=403)
-        if request.method == "POST" and not request.headers.get("content-type", "").startswith("application/json"):
+        if (
+            request.url.path.startswith("/api/privacy/")
+            and request.headers.get("x-verge-local-action") != "1"
+        ):
+            return JSONResponse(
+                {"detail": "Open Data & privacy in the local app."}, status_code=403
+            )
+        if request.method == "POST" and not request.headers.get("content-type", "").startswith(
+            "application/json"
+        ):
             return JSONResponse({"detail": "Use a JSON request."}, status_code=415)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -88,15 +105,19 @@ def db():
 @app.get("/api/privacy/data")
 def private_data_summary():
     with db() as conn:
-        return {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                for table in ("saved_routes", "reports", "audit")}
+        return {
+            table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("saved_routes", "reports", "audit")
+        }
 
 
 @app.get("/api/privacy/export")
 def private_data_export():
     with db() as conn:
-        data = {table: [dict(row) for row in conn.execute(f"SELECT * FROM {table}")]
-                for table in ("saved_routes", "reports", "audit")}
+        data = {
+            table: [dict(row) for row in conn.execute(f"SELECT * FROM {table}")]
+            for table in ("saved_routes", "reports", "audit")
+        }
     for route in data["saved_routes"]:
         route["payload"] = json.loads(route["payload"])
         route["request"] = json.loads(route["request"])
@@ -105,10 +126,14 @@ def private_data_export():
 
 @app.delete("/api/privacy/data")
 def delete_private_data():
-    with db() as conn:
+    global records_epoch
+    with records_lock, db() as conn:
         for table in ("audit", "reports", "saved_routes"):
             conn.execute(f"DELETE FROM {table}")
-    return {"message": "Saved routes, reports and moderation history deleted from this app. Downloaded files and backups are separate."}
+        records_epoch += 1
+    return {
+        "message": "Saved routes, reports and moderation history deleted from this app. Downloaded files and backups are separate."
+    }
 
 
 @app.get("/api/health")
@@ -213,6 +238,8 @@ def resolve_location(request: LocationRequest):
 
 @app.post("/api/routes")
 def routes(request: Plan):
+    with records_lock:
+        epoch = records_epoch
     try:
         with db() as conn:
             adverse = conn.execute(
@@ -238,7 +265,11 @@ def routes(request: Plan):
         raise HTTPException(503, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    with db() as conn:
+    with records_lock, db() as conn:
+        if epoch != records_epoch:
+            raise HTTPException(
+                409, "App records were cleared during this search. Find routes again when ready."
+            )
         for route in result["routes"]:
             route["id"] = str(uuid.uuid4())
             conn.execute(

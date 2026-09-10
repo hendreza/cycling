@@ -28,7 +28,15 @@ export default function SafetyAssessment({
                 "Calculate this route to check mapped road data."}
           </p>
         </div>
-        {updating ? <strong className="safety-value">…</strong> : safety ? <span className="safety-value"><ScoreBar score={safety.score} confidence="low"/></span> : <strong className="safety-value">—</strong>}
+        {updating ? (
+          <strong className="safety-value">…</strong>
+        ) : safety ? (
+          <span className="safety-value">
+            <ScoreBar score={safety.score} confidence="low" />
+          </span>
+        ) : (
+          <strong className="safety-value">—</strong>
+        )}
       </div>
       {change && !updating && (
         <p className="safety-change" role="status">
@@ -38,7 +46,7 @@ export default function SafetyAssessment({
             : change.to > change.from
               ? " · Fewer mapped deductions"
               : " · Same mapped score"}
-          . <Confidence level="low"/>
+          . <Confidence level="low" />
         </p>
       )}
       {dirty && (

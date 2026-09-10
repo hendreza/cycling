@@ -1,33 +1,41 @@
-# Verification · 2026-09-09
+# Verification · 10 September 2026
 
-## Automated checks
+## Current checks
 
-- **111 Python tests pass**: access/gates, direction and turn restrictions, full geometry coverage, strict 20 m point projection, request-local edge splitting, ordered editing points, immutable GPX exports, Android segment/index/type tables, repeated laps, report moderation and import failure handling.
-- Road-based policy tests cover shared major-road junctions, geometric crossings, explicit bridge/tunnel separation, invalid layers, motorway/trunk contacts, starting inside a side road near a blocked junction, and consistent speed evidence across barriers and road exclusions.
-- Best-fit tests cover 20/90/180/200 km totals, automatic lap counts, exact loop closure, score-before-laps ordering, retention of better local candidates when expanding the search, and road-section geometry. Assessment tests cover active approved adverse reports, immutable prior scores, and repeat visits to a junction.
-- **23 browser tests pass with WebGL disabled**: road/satellite layers, fullscreen/fit, mobile layout, tile errors, confirmed start selection, stale location responses, GPS accuracy/cancellation, laps, pace, route-line/control dragging, road exclusions, undo, rejected edits, Android downloads, reports and refresh persistence. New checks cover suburb extensions, the amber road overlay, best-fit lap selection, road-section focus, and score/lap updates after accepted edits. Every test checks for uncaught browser errors.
-- Ruff lint/format and the TypeScript/Vite production build pass. Browser API fixtures use captured real-road geometry; external services are mocked in the automated suite. The separate live checks below use actual local data and map providers.
+`make dev` was smoke-tested from the repository root: both local services started and the health endpoint returned 200. It provides a single-terminal start/stop command.
 
-## Sources and policy
+- **126 Python tests pass**: access/gates, directions, turn restrictions, geometry coverage, precise start projection, loop closure, 3% distance matching, fixed/automatic lap limits, refresh fingerprints, point-route exclusions, exact GPX/OsmAnd exports, report handling and import failures.
+- New privacy tests use temporary databases. They cover export without administrator secrets, confirmed deletion semantics, rejection of foreign origins/untrusted hosts, required local-action headers and preventing a prior in-flight search from recreating deleted records. No deletion test runs against the owner’s database.
+- **27 browser tests pass with WebGL disabled**. The suite checks the simplified setup, long-preset scope/lap defaults, independent custom lap limits, saved routes and camera, real geometry fixtures, route-line/control dragging, live assessment replacement, Android download metadata, satellite/road rendering with WebGL disabled, no-tile mode, local fonts, route refresh/exhaustion, privacy export/delete, cancellation of a pending GPS lookup on deletion and persistent release work. External services are mocked for repeatability; every test checks for uncaught browser errors.
+- Ruff lint/format and the TypeScript/Vite production build pass. TypeScript also rejects unused code left over from removed controls.
+- `npm audit` and `pip-audit` against the pinned Python requirements reported **no known vulnerabilities** on 10 September. These are dependency database checks, not a penetration test or proof of security. Reports are retained in `data/exports/verge-*-audit.json`.
 
-The road/access snapshot is `2026-09-07T14:11:06Z`, with 34,100 mapped ways and 55 estate/private-area exclusions. Routes use policy `osm-conservative-4` and assessment model `mapped-roads-v1`.
+## Current real-data route search
 
-The municipal reference cache contains 22 registered Rooihuiskraal township polygons. An optional label cache contains 67 registered township names across the pilot window, downloaded on 2026-09-08 with full TLS verification. Municipal polygons label routes and bound the field-data ZIP; they do not cut the routing graph. Source survey age is unknown.
+`.venv/bin/python backend/scripts/verify_centurion_routes.py` checks the installed extract without changing the private route database. The report is saved as `data/exports/verge-live-verification.json`. The source snapshot is `2026-09-07T14:11:06Z`: 34,100 mapped ways and 55 estate exclusions, policy `osm-conservative-4`, assessment `mapped-roads-v1`.
 
-The Rooihuiskraal anchor is **Hofsanger Road, 28.1537278 E, 25.8941384 S**. Real-data checks use this start and the default road-bike/local settings. They explicitly verify that the extended route leaves the old municipal polygon while retaining zero mapped major-road contacts and a start projection within 20 m.
+From the public Hofsanger Road anchor in Rooihuiskraal, with default road-bike exclusions:
 
-## Live best-fit results
+| Target and scope | Actual total / laps / one-lap length | Mapped-road score and junctions per lap |
+| --- | --- | --- |
+| 20 km, local | 20.4 / 8 / 2.6 km; 20.6 / 8 / 2.6 km; **20.5 / 1 / 20.5 km** | 80.0, 80.0, 78.9; zero junctions; low confidence |
+| 90 km, Centurion, cap 3 | 91.9 / 3 / 30.6 km; 92.0 / 3 / 30.7 km | 41.8 and 40.7; 11 and 13 junctions; low confidence |
+| 180 km, Centurion, cap 6 | 180.2 / 6 / 30.0 km; 182.8 / 5 / 36.6 km; **181.4 / 4 / 45.4 km** | 41.5, 41.2, 40.9; 11–15 junctions; low confidence |
+| 200 km, Centurion, cap 6 | 200.9 / 6 / 33.5 km; 202.4 / 5 / 40.5 km; **204.5 / 4 / 51.1 km** | 41.4, 41.3, 41.1; 11–15 junctions; low confidence |
+| Refreshed 90 km, cap 3 | 90.3 / 2 / 45.2 km; 90.6 / 2 / 45.3 km; 90.9 / 3 / 30.3 km | 40.7, 40.4, 39.3; 18–23 junctions; low confidence |
+| 90 km, one loop | No matching route | Longest found in this bounded search: 36.4 km |
 
-Options appear in score-first order. Distances below are rounded for display; tests validate totals from stored geometry.
+Display values are rounded. Every returned route was checked from coordinate geometry: closed loop, start within 20 m, actual total between 100% and 103% of target, allowed lap count and no invented verified score/elevation. Refreshed fingerprints differ from all original 90 km options. The wider loops include more junctions and have lower mapped-road scores; they are not described as field-verified or guaranteed suitable.
 
-| Requested total | Returned options: total / laps / mapped-road score |
-| --- | --- |
-| 20 km | 20.6 km / 8 / 80.0; 21.9 km / 6 / 79.6; **20.1 km / 3 / 79.4** |
-| 90 km | 91.1 km / 23 / 80.0; **95.5 km / 13 / 79.7**; **91.3 km / 12 / 79.4** |
-| 180 km | 182.3 km / 46 / 80.0; **183.6 km / 25 / 79.7**; **182.6 km / 24 / 79.4** |
-| 200 km | 202.1 km / 51 / 80.0; **205.6 km / 28 / 79.7**; **205.4 km / 27 / 79.4** |
+Warm searches in this run took approximately 2.6–6.9 seconds. Search seeds, scope, lap caps, start and exclusions can change the result. A “longest found” figure is not an exhaustive maximum and can differ between search configurations.
 
-Bold options extend from **Rooihuiskraal into The Reeds**. Every listed option closes, meets 100–110% of the requested total and has zero mapped major-road junctions. A 90 km nearby search retains the 91.1 km / 23-lap / 80.0 local option. The search took approximately 0.7–0.9 seconds once the graph was loaded in this run; the first request took 4.9 seconds. This is bounded candidate search, not a global optimum guarantee.
+## Visual and interaction checks
+
+The supplied HTML brand reference was rendered and compared with the implementation. Unmocked desktop Chromium loaded the local API, local fonts and actual OSM road tiles; a 1440 px viewport had no horizontal overflow. A final unmocked 90 km search returned the two current 30 km loop choices, displayed 11 junction markers for the selected option, loaded actual Esri imagery and labels (a separate check confirmed all visible imagery tiles loaded without an error), and restored identical route geometry after refresh. A 390 px viewport had no horizontal overflow, all seven grouped public-release items remained in the page, and there were no uncaught browser errors. The result is retained in `data/exports/verge-browser-verification.json`; a fully loaded satellite preview is in `data/exports/verge-satellite-preview.jpg`. Score/confidence panels and map casing were checked visually. The layout preserves a direct mobile jump to the selected map, while extra settings, calibration and source data are collapsible.
+
+## Earlier field-data and browser checks (9 September)
+
+The following results predate the new search. They record previously checked exports and editing behaviour, not the current recommended route set.
 
 The 20.1 km extension is approximately **6.7 km per lap over three laps**. Fresh one-lap and all-lap OsmAnd files were checked for exact saved coordinates, native calculated-route metadata and track-segment counts. Files are in `data/exports/rooihuiskraal-the-reeds-android-single.gpx` and `data/exports/rooihuiskraal-the-reeds-android-all.gpx`, with the saved route JSON beside them.
 
@@ -47,5 +55,5 @@ Refresh restored identical route geometry and score. A 390 px viewport had no ho
 - Edited controls and road exclusions can change other connecting roads and total distance. Exclusions apply to an entire OSM way. Undo history resets on refresh; accepted geometry, controls and assessments persist.
 - Saved assessments retain their source snapshot. Calculate routes to assess against current cached roads and approved reports. A higher score does not establish that a road is safe to ride.
 - Time remains distance divided by selected average moving speed. Hills, stops, road effects and rider training history are not modelled yet.
-- Map tiles require internet; exports require the local API/database. Browser state is specific to its origin. Older-policy saved routes require recalculation before export.
-- Docker and physical phone navigation remain unverified. Two existing Starlette/AnyIO deprecation warnings do not fail the test suite.
+- External map tiles require internet; Routes only and local fonts do not. exports require the local API/database. Browser state is specific to its origin. Older-policy saved routes require recalculation before export.
+- Docker runtime/CSP and physical phone navigation remain unverified. Public launch remains gated by [the release checklist](RELEASE_CHECKLIST.md). Two existing Starlette/AnyIO deprecation warnings do not fail the test suite.

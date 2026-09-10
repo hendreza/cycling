@@ -323,7 +323,9 @@ export default function RideMap({
     const icon = (end = false) =>
       L.divIcon({
         className: `ride-pin ${end ? "end-pin" : ""}`,
-        html: end ? "<span></span>" : '<span></span><b class="start-label">Start</b>',
+        html: end
+          ? "<span></span>"
+          : '<span></span><b class="start-label">Start</b>',
         iconSize: [22, 22],
         iconAnchor: [11, 11],
       });
@@ -472,9 +474,34 @@ export default function RideMap({
     for (const junction of route.major_road_junctions ?? []) {
       const label = document.createElement("span");
       label.textContent = `Major-road junction: ${junction.names.join(" / ")}. Check the crossing on the ground.`;
-      L.circleMarker(latLng(junction.coordinates), { radius: 6, color: "#f5ead8", weight: 2, fillColor: "#643312", fillOpacity: 1, className: "major-junction-marker" }).bindTooltip(label).addTo(group);
+      const marker = L.circleMarker(latLng(junction.coordinates), {
+        radius: 6,
+        color: "#f5ead8",
+        weight: 2,
+        fillColor: "#643312",
+        fillOpacity: 1,
+        className: "major-junction-marker",
+      })
+        .bindTooltip(label)
+        .bindPopup(label.cloneNode(true) as HTMLElement)
+        .addTo(group);
+      const element = marker.getElement();
+      element?.setAttribute("tabindex", "0");
+      element?.setAttribute("role", "button");
+      element?.setAttribute("aria-label", label.textContent);
+      element?.addEventListener("keydown", (event) => {
+        if (
+          event instanceof KeyboardEvent &&
+          (event.key === "Enter" || event.key === " ")
+        ) {
+          event.preventDefault();
+          marker.openPopup();
+        }
+      });
     }
-    return () => { group.remove(); };
+    return () => {
+      group.remove();
+    };
   }, [route, ready, pickMode]);
   useEffect(() => {
     const m = map.current;
@@ -676,7 +703,13 @@ export default function RideMap({
           >
             Satellite
           </button>
-          <button type="button" aria-pressed={basemap === "none"} onClick={() => changeBasemap("none")}>Routes only</button>
+          <button
+            type="button"
+            aria-pressed={basemap === "none"}
+            onClick={() => changeBasemap("none")}
+          >
+            Routes only
+          </button>
         </div>
         <button
           type="button"
@@ -695,7 +728,13 @@ export default function RideMap({
               const place = places.find((p) => p.id === start);
               if (!m) return;
               if (coverage === "centurion") {
-                m.fitBounds([[-25.985, 28.06], [-25.79, 28.275]], fitOptions);
+                m.fitBounds(
+                  [
+                    [-25.985, 28.06],
+                    [-25.79, 28.275],
+                  ],
+                  fitOptions,
+                );
               } else if (stayLocal && route) {
                 m.fitBounds(bounds(route), fitOptions);
               } else {
@@ -763,7 +802,11 @@ export default function RideMap({
       )}
       <div className="map-note">
         <Layers size={15} />
-        {basemap === "none" ? "Local route view · no external tiles" : basemap === "satellite" ? "Satellite · Esri" : "OpenStreetMap basemap"}
+        {basemap === "none"
+          ? "Local route view · no external tiles"
+          : basemap === "satellite"
+            ? "Satellite · Esri"
+            : "OpenStreetMap basemap"}
         <span>
           {(route?.laps ?? 1) > 1
             ? `One lap shown · ride ${route!.laps} times. `
