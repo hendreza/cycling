@@ -122,7 +122,7 @@ def test_private_data_export_and_delete_preserve_public_road_cache(client, graph
         )
         conn.execute("INSERT INTO audit VALUES(1,1,'pending','Recorded locally','2026-09-10')")
     summary = client.get("/api/privacy/data", headers=LOCAL)
-    assert summary.json() == {"saved_routes": count, "reports": 1, "audit": 1}
+    assert summary.json() == {"saved_routes": count, "reports": 1, "audit": 1, "access_blocks": 0}
     exported = client.get("/api/privacy/export", headers=LOCAL)
     assert exported.headers["cache-control"] == "no-store"
     assert "never-export-this-secret" not in exported.text
@@ -134,6 +134,7 @@ def test_private_data_export_and_delete_preserve_public_road_cache(client, graph
         "saved_routes": 0,
         "reports": 0,
         "audit": 0,
+        "access_blocks": 0,
     }
     assert client.get(f"/api/routes/{route_id}/gpx").status_code == 404
     assert osm.get_graph() is graph and graph.nodes

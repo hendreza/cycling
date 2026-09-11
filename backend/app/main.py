@@ -14,10 +14,11 @@ from fastapi.responses import Response, JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field
 from .routing import PLACES, Plan
-from . import osm
+from . import osm, phone_transfer
 from .areas import public_area
 from .navigation import gpx
 from .area_pack import area_data, download_pack
+from .access_blocks import AccessPoint, SaveAccessBlock, AccessMask, resolve as resolve_access
 
 app = FastAPI(title="Verge · Centurion cycling pilot", version="0.2.0")
 app.add_middleware(
@@ -91,6 +92,8 @@ def db():
             expires_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS saved_routes (
             id TEXT PRIMARY KEY, payload TEXT NOT NULL, request TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS access_blocks (
+            id TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS audit (
             id INTEGER PRIMARY KEY, report_id INTEGER NOT NULL, action TEXT NOT NULL,
             reason TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -107,7 +110,7 @@ def private_data_summary():
     with db() as conn:
         return {
             table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("saved_routes", "reports", "audit")
+            for table in ("saved_routes", "reports", "audit", "access_blocks")
         }
 
 
@@ -116,8 +119,10 @@ def private_data_export():
     with db() as conn:
         data = {
             table: [dict(row) for row in conn.execute(f"SELECT * FROM {table}")]
-            for table in ("saved_routes", "reports", "audit")
+            for table in ("saved_routes", "reports", "audit", "access_blocks")
         }
+    for block in data["access_blocks"]:
+        block["payload"] = json.loads(block["payload"])
     for route in data["saved_routes"]:
         route["payload"] = json.loads(route["payload"])
         route["request"] = json.loads(route["request"])
@@ -128,12 +133,81 @@ def private_data_export():
 def delete_private_data():
     global records_epoch
     with records_lock, db() as conn:
-        for table in ("audit", "reports", "saved_routes"):
+        for table in ("audit", "reports", "saved_routes", "access_blocks"):
             conn.execute(f"DELETE FROM {table}")
         records_epoch += 1
+        phone_transfer.stop()
     return {
-        "message": "Saved routes, reports and moderation history deleted from this app. Downloaded files and backups are separate."
+        "message": "Saved routes, access blocks, reports and moderation history deleted from this app. Downloaded files and backups are separate."
     }
+
+
+def access_blocks(conn=None):
+    if conn is None:
+        with db() as connection:
+            return access_blocks(connection)
+    return [
+        json.loads(row["payload"])
+        for row in conn.execute("SELECT payload FROM access_blocks ORDER BY created_at DESC")
+    ]
+
+
+@app.get("/api/access-blocks")
+def list_access_blocks():
+    return access_blocks()
+
+
+@app.post("/api/access-blocks/resolve")
+def preview_access_block(request: AccessPoint):
+    try:
+        return resolve_access(osm.get_graph(), request)
+    except FileNotFoundError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/access-blocks", status_code=201)
+def save_access_block(request: SaveAccessBlock):
+    global records_epoch
+    with records_lock:
+        epoch = records_epoch
+    block = preview_access_block(request)
+    now = datetime.now(timezone.utc).isoformat()
+    with records_lock, db() as conn:
+        if epoch != records_epoch:
+            raise HTTPException(
+                409, "App records changed while saving. Check the section and try again."
+            )
+        for existing in access_blocks(conn):
+            if existing["geometry"] == [list(p) for p in block["geometry"]]:
+                return existing
+        block.update(
+            id=str(uuid.uuid4()), note=request.note.strip() or "Access controlled", created_at=now
+        )
+        conn.execute(
+            "INSERT INTO access_blocks VALUES(?,?,?)", (block["id"], json.dumps(block), now)
+        )
+        records_epoch += 1
+        phone_transfer.stop()
+    return block
+
+
+@app.delete("/api/access-blocks/{block_id}")
+def remove_access_block(block_id: str):
+    global records_epoch
+    with records_lock, db() as conn:
+        if not conn.execute("DELETE FROM access_blocks WHERE id=?", (block_id,)).rowcount:
+            raise HTTPException(404, "This access block has already been removed.")
+        records_epoch += 1
+        phone_transfer.stop()
+    return {"message": "Road section reopened for your future route searches."}
+
+
+def access_hazards():
+    return [
+        {**b, "category": "personal-access-block", "detail": b["note"]} for b in access_blocks()
+    ]
 
 
 @app.get("/api/health")
@@ -211,7 +285,7 @@ class LocationRequest(BaseModel):
 def resolve_location(request: LocationRequest):
     try:
         graph = osm.get_graph()
-        network = graph.adjacency(request.plan)
+        network = graph.adjacency(request.plan, access_hazards())
         point = request.plan.point(request.kind)
         node, gap = graph.snap(point, network)
         edges = [
@@ -255,6 +329,7 @@ def routes(request: Plan):
             }
             for row in adverse
         ]
+        hazards.extend(access_hazards())
         if not route_slots.acquire(blocking=False):
             raise HTTPException(429, "Two route searches are already running. Try again shortly.")
         try:
@@ -268,7 +343,8 @@ def routes(request: Plan):
     with records_lock, db() as conn:
         if epoch != records_epoch:
             raise HTTPException(
-                409, "App records were cleared during this search. Find routes again when ready."
+                409,
+                "Access blocks or app records changed during this search. Find routes again when ready.",
             )
         for route in result["routes"]:
             route["id"] = str(uuid.uuid4())
@@ -284,6 +360,78 @@ def routes(request: Plan):
     return result
 
 
+def route_access_blocked(route):
+    mask = AccessMask(access_blocks())
+    segments = route.get("navigation", {}).get("segments", [])
+    coords = route["coordinates"]
+    return (
+        any(mask.matches(coords[s["index"] : s["index"] + s["count"]]) for s in segments)
+        if segments
+        else any(mask.matches([a, b]) for a, b in zip(coords, coords[1:]))
+    )
+
+
+@app.get("/api/routes/{route_id}/access")
+def route_access_status(route_id: str):
+    with db() as conn:
+        row = conn.execute("SELECT payload FROM saved_routes WHERE id=?", (route_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Saved route not found. Recalculate before exporting.")
+    route = json.loads(row["payload"])
+    return {
+        "blocked": route_access_blocked(route),
+        "current_policy": route.get("policy_version") == osm.POLICY_VERSION,
+    }
+
+
+@app.get("/api/transfer/interfaces")
+def transfer_interfaces():
+    return [] if os.getenv("VERGE_PHONE_TRANSFER_DISABLED") == "1" else phone_transfer.interfaces()
+
+
+class PhoneTransfer(BaseModel):
+    address: str = Field(max_length=45)
+    laps: Literal["all", "single"] = "all"
+    speed_kmh: float | None = Field(default=None, ge=8, le=40)
+
+
+@app.post("/api/routes/{route_id}/transfer", status_code=201)
+def create_phone_transfer(route_id: str, request: PhoneTransfer):
+    if os.getenv("VERGE_PHONE_TRANSFER_DISABLED") == "1":
+        raise HTTPException(
+            422, "Wi-Fi transfer is disabled in this installation. Use Download for Android."
+        )
+    with records_lock:
+        document = export(route_id, format="osmand", laps=request.laps, speed_kmh=request.speed_kmh)
+        with db() as conn:
+            route = json.loads(
+                conn.execute("SELECT payload FROM saved_routes WHERE id=?", (route_id,)).fetchone()[
+                    "payload"
+                ]
+            )
+        try:
+            return phone_transfer.create(
+                request.address,
+                document.body,
+                route["name"],
+                route.get("lap_distance", route["distance"])
+                if request.laps == "single"
+                else route["distance"],
+                1 if request.laps == "single" else route.get("laps", 1),
+            )
+        except (ValueError, OSError) as exc:
+            raise HTTPException(
+                422,
+                "Could not open phone transfer on that network. Check your Wi-Fi connection and try again.",
+            ) from exc
+
+
+@app.delete("/api/transfer/{transfer_id}")
+def stop_phone_transfer(transfer_id: str):
+    phone_transfer.stop(transfer_id)
+    return {"message": "Phone download link closed."}
+
+
 @app.get("/api/routes/{route_id}/gpx")
 def export(
     route_id: str,
@@ -291,14 +439,18 @@ def export(
     laps: Literal["all", "single"] = "all",
     speed_kmh: float | None = Query(default=None, ge=8, le=40),
 ):
+    with records_lock:
+        epoch = records_epoch
     with db() as conn:
         row = conn.execute("SELECT payload FROM saved_routes WHERE id=?", (route_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Saved route not found. Plan a new route.")
     route = json.loads(row["payload"])
     if route.get("policy_version") != osm.POLICY_VERSION:
+        raise HTTPException(409, "Routing rules changed. Find routes again before exporting.")
+    if route_access_blocked(route):
         raise HTTPException(
-            409, "Routing access rules changed. Find routes again before exporting."
+            409, "This saved route crosses a blocked access section. Recalculate before exporting."
         )
     try:
         document = gpx(
@@ -306,6 +458,11 @@ def export(
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+    with records_lock:
+        if epoch != records_epoch:
+            raise HTTPException(
+                409, "Access blocks or app records changed while exporting. Try again."
+            )
     return Response(
         document,
         media_type="application/gpx+xml",

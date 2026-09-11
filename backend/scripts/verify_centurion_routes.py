@@ -45,6 +45,8 @@ def verify():
             assert km(p.point("start"), r["coordinates"][0]) * 1000 <= 20
             assert r["fingerprint"] == fingerprint(r["coordinates"])
             assert r["elevation"] is None and r["score"] is None
+            assert r["navigation"]["physical_uturns_per_lap"] == 0
+            assert not any(c["turn"] == "TU" for c in r["navigation"]["cues"])
             if coverage == "local":
                 assert r["safety"]["major_junctions_per_lap"] == 0
             if variation:
@@ -54,6 +56,7 @@ def verify():
                     "distance_km": r["distance"],
                     "loop_km": r["lap_distance"],
                     "laps": r["laps"],
+                    "physical_uturns_per_lap": r["navigation"]["physical_uturns_per_lap"],
                     "mapped_road_score": r["safety"]["score"],
                     "confidence": "low",
                     "major_junctions_per_lap": r["safety"]["major_junctions_per_lap"],

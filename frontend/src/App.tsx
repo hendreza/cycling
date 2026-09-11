@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { controlPoints } from "./routeEditing";
 import SafetyAssessment from "./SafetyAssessment";
 import PrivacyPanel from "./PrivacyPanel";
+import AccessControls, { useAccessBlocks } from "./AccessControls";
+import PhoneExport from "./PhoneExport";
+import { api, post } from "./api";
 import { initial } from "./types";
 import PlannerSetup from "./PlannerSetup";
 import { Logo, ScoreBar, Notice } from "./Brand";
@@ -32,24 +35,6 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch("/api" + path, init);
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(
-      typeof body.detail === "string"
-        ? body.detail
-        : "Please check your selections and try again.",
-    );
-  }
-  return response.json();
-}
-const post = (body: unknown) => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(body),
-});
 
 const lapKm = (r: Route) =>
   ((r.lap_distance_m ?? (r.lap_distance ?? r.distance) * 1000) / 1000).toFixed(
@@ -104,6 +89,7 @@ export default function App() {
   const mapSection = useRef<HTMLDivElement>(null);
   function beginPick(kind: "start" | "destination") {
     stopLocating();
+    access.cancel();
     setCandidate(null);
     setCandidatePoint(null);
     setLocationMessage("");
@@ -236,6 +222,11 @@ export default function App() {
           JSON.stringify(usedPlan.destination_coordinates ?? null)));
   const visibleRoutes = locationDirty ? [] : routes;
   const route = visibleRoutes[selected];
+  const access = useAccessBlocks(route?.id, () => {
+    requestId.current++;
+    setBusy(false);
+    setEditHistory([]);
+  });
   const speed = riderSpeed(plan);
   const dirty =
     JSON.stringify({ ...plan, rider_speed_kmh: null }) !==
@@ -247,7 +238,7 @@ export default function App() {
       else next.laps = Math.min(next.laps, Math.floor(next.distance / 2));
       return next;
     });
-  async function generate(p = plan, different = false) {
+  async function generate(p = plan, different = false, preserveEmpty = false) {
     if (!different) p = { ...p, exclude_routes: [] };
     setSafetyChange(null);
     const id = ++requestId.current;
@@ -265,6 +256,13 @@ export default function App() {
       }>("/routes", post(p));
       if (id !== requestId.current) return;
       setSearchLimits(result.limits ?? null);
+      if (preserveEmpty && !result.routes.length) {
+        setMessage(
+          result.message +
+            " Your previous route remains for reference; blocked routes cannot be exported.",
+        );
+        return;
+      }
       if (different && !result.routes.length) {
         setMessage(
           "No different route met these choices. Your current route is still selected. Try a wider area or a different lap limit.",
@@ -336,6 +334,7 @@ export default function App() {
         .catch(() => setError("Could not load community reports."));
   }, [tab]);
   async function download(format = "gpx", laps = "all") {
+    if (access.exportProblem || busy) return;
     setExporting(true);
     setError("");
     try {
@@ -540,6 +539,7 @@ export default function App() {
               onArea={(start) => {
                 stopLocating();
                 cancelPick();
+                access.cancel();
                 setLocationMessage("");
                 setFocusZoom(15);
                 setFocusPoint(
@@ -571,8 +571,10 @@ export default function App() {
                   start={plan.start}
                   startCoordinates={plan.start_coordinates}
                   boundaryVersion={dataStatus?.access_timestamp}
-                  onPick={choosePoint}
-                  pickMode={pickMode}
+                  onPick={access.marking ? access.pick : choosePoint}
+                  pickMode={access.marking ? "access" : pickMode}
+                  accessBlocks={access.blocks}
+                  accessCandidate={access.candidate}
                   draftStart={plan.start_coordinates}
                   draftDestination={
                     plan.mode === "point" ? plan.destination_coordinates : null
@@ -585,11 +587,28 @@ export default function App() {
                   radiusKm={plan.radius_km}
                   coverage={plan.coverage}
                   loop={plan.mode === "loop"}
-                  editing={editing && !pickMode && !dirty && !busy}
+                  editing={
+                    editing && !pickMode && !access.marking && !dirty && !busy
+                  }
                   onDragRoute={dragRoute}
                   onAvoidRoad={avoidMapRoad}
                 />
-                {route && !pickMode && (
+                <AccessControls
+                  model={access}
+                  calculating={busy}
+                  onBegin={() => {
+                    stopLocating();
+                    cancelPick();
+                    setEditing(false);
+                    access.begin();
+                  }}
+                  onFocus={(point) => {
+                    setFocusPoint(point);
+                    setFocusZoom(18);
+                  }}
+                  onRecalculate={() => generate(plan, false, true)}
+                />
+                {route && !pickMode && !access.marking && (
                   <div className="route-edit-panel">
                     <div className="point-actions">
                       <button
@@ -943,7 +962,7 @@ export default function App() {
                     <button
                       className="outline"
                       onClick={() => download()}
-                      disabled={exporting}
+                      disabled={exporting || busy || !!access.exportProblem}
                     >
                       <ArrowDownToLine size={16} />
                       {exporting ? "Exporting…" : "Export GPX"}
@@ -957,72 +976,19 @@ export default function App() {
                       separate track segments.
                     </p>
                   )}
-                  <details className="phone-guide">
-                    <summary>Use this route on Android</summary>
-                    <p>
-                      Download a GPX with road names and turn information for
-                      OsmAnd. One lap is easiest to check before a first test
-                      ride.
+                  <PhoneExport
+                    key={route.id}
+                    route={route}
+                    speed={speed}
+                    revision={access.revision}
+                    disabled={!!access.exportProblem || busy}
+                  />
+                  {route.navigation?.physical_uturns_per_lap === 0 && (
+                    <p className="route-flow-note">
+                      No mapped U-turns, including the lap join. Turnarounds
+                      follow connected roads.
                     </p>
-                    <div className="point-actions">
-                      <button
-                        className="primary"
-                        disabled={exporting || !route.navigation}
-                        onClick={() => download("osmand", "single")}
-                      >
-                        Android · one lap
-                      </button>
-                      <button
-                        className="outline"
-                        disabled={exporting || !route.navigation}
-                        onClick={() => download("osmand", "all")}
-                      >
-                        Android · all laps
-                      </button>
-                    </div>
-                    {!route.navigation && (
-                      <p>Calculate this route again to add turn information.</p>
-                    )}
-                    <ol>
-                      <li>
-                        Install OsmAnd on Android and download the offline map
-                        covering Gauteng and a voice package.
-                      </li>
-                      <li>
-                        Transfer this file to your phone by USB or Quick Share.
-                        Open the GPX with OsmAnd and import it into Tracks.
-                      </li>
-                      <li>
-                        Open the track, choose Navigation and the cycling
-                        profile, and follow it from the start. For multiple
-                        laps, select all track segments.
-                      </li>
-                      <li>
-                        Check the imported roads against this preview. Avoid
-                        “Attach to roads” or reversing the route: either can
-                        change the checked route. Phone recalculation after
-                        leaving the track uses OsmAnd’s own rules.
-                      </li>
-                    </ol>
-                    <p>
-                      Turn information is generated from mapped road joins.
-                      Check guidance on your phone before riding; physical
-                      Android navigation has not yet been tested.
-                    </p>
-                    {route.navigation?.roundabouts_need_review && (
-                      <p>
-                        This route has a roundabout. Exit numbers are not
-                        supplied; follow its highlighted track.
-                      </p>
-                    )}
-                    <a
-                      href="https://osmand.net/docs/user/navigation/setup/gpx-navigation/"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      OsmAnd track navigation guide
-                    </a>
-                  </details>
+                  )}
                   {!!route.sections?.length && (
                     <details className="turn-list route-sections">
                       <summary>Ride sections · roads and mapped score</summary>
@@ -1294,6 +1260,7 @@ export default function App() {
               onDeleted={() => {
                 stopLocating();
                 cancelPick();
+                access.reset();
                 setFocusPoint(null);
                 setLocationMessage("");
                 setAdminKey("");

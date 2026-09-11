@@ -9,6 +9,7 @@ services:
   backend:
     build: ./backend
     environment:
+      VERGE_PHONE_TRANSFER_DISABLED: "1"
       DATABASE_PATH: /data/pilot.db
       VELD_AREA_PATH: /data/areas/rooihuiskraal.json
       VELD_NEIGHBOURHOODS_PATH: /data/areas/centurion-neighbourhoods.json

@@ -1,10 +1,10 @@
-# First Rooihuiskraal ride
+# Riding with Verge in Rooihuiskraal
 
 Open http://localhost:5173 while `make dev` is running. On a fresh checkout run `make roads`, `make area` and `make neighbourhoods` first. The workspace already has these datasets.
 
 1. Select **Rooihuiskraal**, your bike, and **Connected local roads**. Brown lines identify major roads. Connected streets can extend across suburb names, including into The Reeds, without crossing a major road. Mapped bridges/underpasses may connect opposite sides. The default start is **Hofsanger Road**, not your home or GPS position.
 2. Click **Choose start on map**. Tap a public road, or pan and choose **Use map centre**. The app checks the road and shows its name, coordinates and distance from your point. Click **Use this start** to confirm and calculate. It will not move your start more than 20 m to find a route.
-3. Choose **Best fit** under **Loop planning** and set your total distance. Calculate routes. It ranks the highest mapped-road score first, then the fewest laps, and also offers distinct road and fewer-lap alternatives. On the 7 September extract, a 20 km request includes a **20.5 km single local loop**; higher-scoring 2.6 km loops over eight laps appear first. All these scores have low confidence.
+3. Choose **Best fit** under **Loop planning** and set your total distance. Calculate routes. It ranks the highest mapped-road score first, then the fewest laps, and also offers distinct road and fewer-lap alternatives. On the 7 September extract, a 20 km request includes a **20.1 km single local loop**; higher-scoring loops of 3.4 km over six laps and 2.6 km over eight laps appear first. All these scores have low confidence.
 4. **Within a nearby radius** permits eligible junctions within 2–5 km; the radius setting is under **More ride options**. **Across Centurion** searches the whole pilot area. Riding along major roads remains excluded unless that separate setting is changed. A request that cannot be met shows no route. Local mode retains major-road junction exclusions.
 
 5. Use **Road map / Satellite / Routes only**, **Fit route**, **Show area**, and fullscreen to inspect the road geometry. Imagery dates and alignment vary. The map shows one lap. Route, controls, exclusions, settings and camera survive refresh in the same browser and address.
@@ -20,9 +20,9 @@ Checks on 10 September, from the Hofsanger Road anchor and the 7 September extra
 
 | Requested | Actual options | Road information |
 | --- | --- | --- |
-| 90 km, max 3 laps | 91.9 km / 3 laps / 30.6 km loop | 11 major-road junctions per lap, mapped-road score 41.8/100, low confidence |
-| 180 km, max 6 laps | 180.2 km / 6 laps; 182.8 km / 5; 181.4 km / 4 | 11–15 major-road junctions per lap, low confidence |
-| 200 km, max 6 laps | 200.9 km / 6 laps; 202.4 km / 5; 204.5 km / 4 | 11–15 major-road junctions per lap, low confidence |
+| 90 km, max 3 laps | 90.1 km / 2 laps / 45.0 km loop | 15 major-road junctions per lap, mapped-road score 42.7/100, low confidence |
+| 180 km, max 6 laps | 180.2 km / 4 laps; 182.9 km / 6; 184.5 km / 5 | 13–15 major-road junctions per lap, low confidence |
+| 200 km, max 6 laps | 201.1 km / 4 laps; 205.2 km / 5; 205.7 km / 6 | 13–15 major-road junctions per lap, low confidence |
 
 **Refresh routes** samples different roads and excludes the recent route geometries. A refreshed 90 km search found 45 km loops over two laps, with more major-road junctions. If no different match is found, your current ride stays selected. Review each new route; a different or longer loop can have more mapped concerns.
 
@@ -42,19 +42,32 @@ The router must visit the control points in order, project each within 20 m of a
 
 Avoiding a road excludes the entire selected OpenStreetMap way object. This may cover several sections or only part of a named street; it does not exclude every road sharing that name. The road-inspection list also supports exclusions, followed by **Calculate routes**. Clear exclusions in setup if needed. If a retained control point sits on a road you exclude, move or clear that point.
 
+## Turnarounds and blocked entrances
+
+New routes reject immediate road reversals, including at editing controls and where laps join. The planner looks for eligible connected roads around a block or a mapped roundabout. A hard editing point in a dead end can make a route impossible; move or remove that point. Sharp joins of 160° or more are conservatively excluded. Missing or inaccurate map geometry can still disagree with the physical road. Saved rides from the previous routing policy remain visible but need recalculation before export.
+
+Use **Mark blocked access** below the map after encountering an entrance you cannot use:
+
+1. Zoom to the entrance and tap its road, or pan and choose **Use map centre**. The road must be within 20 m of the point.
+2. Check the highlighted road section and its name. Add a note, then **Save access block**. This excludes that section in both directions for every future ride. It does not infer the estate boundary or mark other entrances.
+3. Click **Recalculate route** to get new choices and updated scores. The original route remains visible for reference if no replacement fits, but an affected route cannot be exported. Move editing controls away from the blocked section if necessary.
+4. Open **saved access blocks** to show a marked entrance or **Reopen section**. Blocks survive refresh and restarts until reopened or deleted in Data & privacy.
+
+These are private owner observations and take effect without report moderation. General condition reports keep their existing moderation process. Stop before using the phone; if planning on the computer, record the entrance coordinates in your navigation app and mark the matching road on Verge afterwards. An OSM road can have several sections; the highlight defines this block’s scope.
+
 ## Android navigation
 
-1. Install **OsmAnd** on the phone. Download the offline map covering Gauteng/South Africa and a voice package.
-2. In the selected route, open **Use this route on Android** and download **Android · one lap** for the first check. **Android · all laps** includes one complete track segment per lap. Ordinary **Export GPX** remains available for other track-compatible apps.
-3. Transfer the file by USB or Quick Share. From Android Files, open it with OsmAnd and import it into Tracks.
-4. Open the imported track, choose Navigation and the cycling profile, and follow from the start. For the all-lap file, select all segments. Inspect the turn preview and compare the imported roads with Verge before starting.
-5. Avoid **Attach to roads**, reversing, or route optimisation: those can change the reviewed route. Off-track recalculation uses OsmAnd’s own rules, which do not include Verge’s local exclusions. Check the route again if the phone recalculates it.
+1. Once per phone, install **OsmAnd**, download the offline map for Gauteng and a voice package.
+2. Under **Take your route**, click **Download for Android**. All laps are included by default; select **One lap** to check a single circuit. The file is prepared automatically when the route is ready.
+3. From the computer, open **Send to phone over Wi-Fi**, read the short privacy note, and click **Create phone link**. Scan the QR with your Android camera and tap **Download for OsmAnd**. Keep both devices on the same trusted Wi-Fi and the computer running. The link expires after 10 minutes; **Close link now** ends it sooner. If needed, choose the Wi-Fi interface rather than a VPN. The app does not change firewall/router rules.
+4. If **Share route** appears, it can send the prepared file to an app you choose in the operating system’s share menu. Browser support for GPX sharing varies. Download plus Quick Share/USB remains a fallback.
+5. On Android, open the downloaded GPX with OsmAnd. Open its track and choose **Navigation** with the cycling profile; select all track segments for multiple laps.
 
-The OsmAnd file includes exact saved geometry, road names and calculated-route extensions with turn cues at mapped road joins. It does not invent elevation or roundabout exit numbers; follow the highlighted track through a roundabout. File structure and geometry are tested; navigation on a physical Android phone and lap announcements still need a device/field check.
+The file contains the exact checked road geometry and calculated turn information. Check the imported track matches the preview. Attaching to roads, reversing or recalculating in OsmAnd can change it. Roundabout exit numbers are not supplied. A cancelled share does not discard the file; Download remains available.
 
-References: [OsmAnd navigate by track](https://osmand.net/docs/user/navigation/setup/gpx-navigation/) and [calculated-route GPX format](https://osmand.net/docs/technical/osmand-file-formats/osmand-gpx/).
+The owner’s initial ride confirmed that transfer works but involves too many steps. The revised download/share controls are browser-tested; physical Android behaviour still needs checking on the owner’s device. The [optional Wi-Fi QR flow](PHONE_TRANSFER_PROPOSAL.md) is tested with a loopback listener; the owner’s network/phone still needs a check. It is available through native `make dev`; Docker Compose disables the listener. A changed route/lap choice or saved access block closes an old phone link.
 
-The app currently listens on this computer’s loopback interface. File transfer is the immediate phone workflow; `localhost` on the phone refers to the phone itself.
+See [OsmAnd’s track navigation guide](https://osmand.net/docs/user/navigation/setup/gpx-navigation/) and [Web Share browser requirements](https://developer.mozilla.org/en-US/docs/Web/API/Web_Share_API).
 
 ## Rooihuiskraal field data
 

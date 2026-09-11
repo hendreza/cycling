@@ -95,7 +95,7 @@ export default function PrivacyPanel({ onDeleted }: { onDeleted: () => void }) {
           "Deletion failed. Try again before assuming the data is removed.",
         );
       onDeleted();
-      setCounts({ saved_routes: 0, reports: 0, audit: 0 });
+      setCounts({ saved_routes: 0, reports: 0, audit: 0, access_blocks: 0 });
       setConfirming(false);
       try {
         keys.forEach((key) => localStorage.removeItem(key));
@@ -118,7 +118,7 @@ export default function PrivacyPanel({ onDeleted }: { onDeleted: () => void }) {
     <div className="privacy-panel">
       <div className="privacy-intro">
         <span className="private-chip">
-          Private preview · 10 September 2026
+          Private preview · 11 September 2026
         </span>
         <h2>Your data. Your rides.</h2>
         <p>
@@ -131,13 +131,16 @@ export default function PrivacyPanel({ onDeleted }: { onDeleted: () => void }) {
         <p>
           Your browser remembers the route, precise chosen points, ride settings
           and map view. The local server stores generated route snapshots, road
-          reports and moderation history. They remain until you delete them;
-          there is no automatic expiry of saved routes.
+          reports, saved access blocks and moderation history. Access blocks
+          exclude the highlighted road sections from future rides until reopened
+          or deleted. They remain until you delete them; there is no automatic
+          expiry of saved routes.
         </p>
         {counts && (
           <p className="data-counts">
             {counts.saved_routes} saved route snapshots · {counts.reports}{" "}
-            reports · {counts.audit} moderation records
+            reports · {counts.audit} moderation records ·{" "}
+            {counts.access_blocks ?? 0} access blocks
           </p>
         )}
         <div className="point-actions">
@@ -159,9 +162,10 @@ export default function PrivacyPanel({ onDeleted }: { onDeleted: () => void }) {
             aria-label="Confirm data deletion"
           >
             <p>
-              This removes all route snapshots, reports and moderation records
-              from the local server, plus ride history in this browser. Your
-              downloaded road map data remains. This cannot be undone.
+              This removes all route snapshots, access blocks, reports and
+              moderation records from the local server, plus ride history in
+              this browser. Your downloaded road map data remains. This cannot
+              be undone.
             </p>
             <div className="point-actions">
               <button
@@ -207,6 +211,15 @@ export default function PrivacyPanel({ onDeleted }: { onDeleted: () => void }) {
           contacts their data providers for the fixed pilot area.
         </p>
         <p>
+          <strong>Phone transfer.</strong> “Create phone link” temporarily
+          shares only the selected GPX over your local Wi-Fi. The connection is
+          unencrypted; someone on the network who obtains the link can download
+          its precise coordinates. It closes after 10 minutes, when you close
+          it, or when access blocks or app records change. The file is kept in
+          server memory during transfer. Your other app records remain on the
+          private API. Downloaded copies cannot be revoked.
+        </p>
+        <p>
           <strong>Control and retention.</strong> Export or delete app records
           above. Correct your chosen points in the planner; remove inaccurate
           reports by clearing local app records. Deletion does not erase
@@ -249,8 +262,10 @@ export default function PrivacyPanel({ onDeleted }: { onDeleted: () => void }) {
         <p>
           Review your route before riding and stop to operate the phone. Route
           downloads include the selected geometry; Android guidance depends on
-          the receiving app and still needs on-bike validation. Public consumer
-          terms, operator details and any paid-service obligations remain open.
+          the receiving app. Initial rider feedback has identified access and
+          turnaround issues; broader field validation remains open. Public
+          consumer terms, operator details and any paid-service obligations
+          remain open.
         </p>
         <p>
           Roads: ©{" "}

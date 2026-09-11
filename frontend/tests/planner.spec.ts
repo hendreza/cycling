@@ -29,6 +29,10 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path === "/api/transfer/interfaces") return route.fulfill({ json: [] });
+    if (path === "/api/access-blocks") return route.fulfill({ json: [] });
+    if (path.endsWith("/access"))
+      return route.fulfill({ json: { blocked: false, current_policy: true } });
     if (path === "/api/data/exclusions")
       return route.fulfill({
         json: { type: "FeatureCollection", features: [] },
@@ -146,7 +150,7 @@ test("map selection, remembered road exclusion and mobile layout", async ({
   await page
     .getByRole("button", { name: "Use this start", exact: true })
     .click();
-  await expect(page.getByRole("status")).toContainText(
+  await expect(page.locator(".pick-message[role=status]")).toContainText(
     "Start: Fixture selected road",
   );
   await page.getByText(/Inspect roads & avoid a section/).click();
@@ -225,6 +229,9 @@ test("satellite switching preserves the route and remembers the basemap", async 
     page.getByRole("heading", { name: /^[1-3] routes?$/ }),
   ).toBeVisible();
   await page.locator(".route-card").nth(1).click();
+  await expect(
+    page.getByRole("button", { name: "Download for Android", exact: true }),
+  ).toBeEnabled();
   const details = await page.locator(".route-detail").innerText();
   const imagery = page.waitForRequest((r) =>
     r.url().includes("World_Imagery/MapServer/tile/"),
@@ -239,6 +246,9 @@ test("satellite switching preserves the route and remembers the basemap", async 
     "aria-pressed",
     "true",
   );
+  await expect(
+    page.getByRole("button", { name: "Download for Android", exact: true }),
+  ).toBeEnabled();
   expect(await page.locator(".route-detail").innerText()).toBe(details);
   await expect(page.getByRole("button", { name: "Map marker" })).toBeVisible();
   await expect(page.locator(".leaflet-control-attribution")).toContainText(
@@ -373,6 +383,9 @@ test("refresh restores the chosen lap route, draft settings and map view without
     plans++;
     return r.fulfill({ status: 503 });
   });
+  await expect(
+    page.getByRole("button", { name: "Download for Android", exact: true }),
+  ).toBeEnabled();
   const details = await page.locator(".route-detail").innerText();
   await page.reload();
   await expect(page.locator(".route-card").nth(1)).toHaveAttribute(
@@ -380,6 +393,9 @@ test("refresh restores the chosen lap route, draft settings and map view without
     "true",
   );
   expect(plans).toBe(2);
+  await expect(
+    page.getByRole("button", { name: "Download for Android", exact: true }),
+  ).toBeEnabled();
   expect(await page.locator(".route-detail").innerText()).toBe(details);
   await expect(page.getByLabel("Laps", { exact: true })).toHaveValue("3");
   await expect(page.getByLabel("Total ride distance")).toHaveValue("48");
@@ -816,18 +832,15 @@ test("Android one-lap and all-lap exports request navigation metadata", async ({
 }) => {
   await page.goto("/");
   await expect(page.locator(".route-card").first()).toBeVisible();
-  await page.getByText("Use this route on Android", { exact: true }).click();
   for (const laps of ["single", "all"]) {
     const request = page.waitForRequest(
       (r) =>
         r.url().includes("format=osmand") && r.url().includes("laps=" + laps),
     );
+    await page.getByLabel("Android download laps").selectOption(laps);
     const download = page.waitForEvent("download");
     await page
-      .getByRole("button", {
-        name: laps === "single" ? "Android · one lap" : "Android · all laps",
-        exact: true,
-      })
+      .getByRole("button", { name: "Download for Android", exact: true })
       .click();
     await request;
     expect((await download).suggestedFilename()).toContain("-android-" + laps);
@@ -1229,7 +1242,7 @@ test("refresh requests different roads, saves the selection and preserves it whe
   await page
     .getByRole("button", { name: "Refresh routes", exact: true })
     .click();
-  await expect(page.getByRole("status")).toContainText(
+  await expect(page.locator(".search-message[role=status]")).toContainText(
     "Your current route is still selected",
   );
   expect(
@@ -1412,4 +1425,270 @@ test("major-road junction markers show the selected route's actual crossing poin
   await expect(page.locator(".notice")).toContainText(
     "1 major-road junction to review",
   );
+});
+
+test("saved access blocks survive refresh and stop exporting an affected route", async ({
+  page,
+}) => {
+  let blocks: any[] = [];
+  await page.route("**/api/access-blocks**", async (handler) => {
+    const path = new URL(handler.request().url()).pathname;
+    const method = handler.request().method();
+    if (path.endsWith("/resolve"))
+      return handler.fulfill({
+        json: {
+          edge_id: "fixture-edge",
+          way_id: 123,
+          road_name: "Test gate road",
+          snap_distance_m: 2,
+          coordinates: handler.request().postDataJSON().coordinates,
+          geometry: routes.routes[0].coordinates.slice(0, 4),
+        },
+      });
+    if (method === "POST") {
+      blocks = [
+        {
+          ...handler.request().postDataJSON(),
+          id: "block-1",
+          road_name: "Test gate road",
+          snap_distance_m: 2,
+          geometry: routes.routes[0].coordinates.slice(0, 4),
+          created_at: "2026-09-10",
+        },
+      ];
+      return handler.fulfill({ json: blocks[0] });
+    }
+    if (method === "DELETE") {
+      blocks = [];
+      return handler.fulfill({ json: { message: "Reopened" } });
+    }
+    return handler.fulfill({ json: blocks });
+  });
+  await page.route("**/api/routes/*/access", (handler) =>
+    handler.fulfill({
+      json: { blocked: blocks.length > 0, current_policy: true },
+    }),
+  );
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Export GPX", exact: true }),
+  ).toBeEnabled();
+  await page
+    .getByRole("button", { name: "Mark blocked access", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Use map centre", exact: true })
+    .click();
+  await expect(page.locator(".access-preview-line")).toHaveCount(1);
+  await page
+    .getByLabel("Note", { exact: true })
+    .fill("Gate locked on today's ride");
+  await page
+    .getByRole("button", { name: "Save access block", exact: true })
+    .click();
+  await expect(
+    page.getByText("This route crosses a saved access block.", {
+      exact: false,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Export GPX", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Download for Android", exact: true }),
+  ).toBeDisabled();
+  await page.reload();
+  await expect(
+    page.getByText("This route crosses a saved access block.", {
+      exact: false,
+    }),
+  ).toBeVisible();
+  await expect(page.locator(".access-block-line")).toHaveCount(1);
+  await page.getByText("1 saved access block", { exact: true }).click();
+  await expect(
+    page.getByText("Gate locked on today's ride", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Reopen section", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Export GPX", exact: true }),
+  ).toBeEnabled();
+  await expect(page.locator(".access-block-line")).toHaveCount(0);
+});
+
+test("old saved routes must be recalculated for the new turn rules", async ({
+  page,
+}) => {
+  await page.route("**/api/routes/*/access", (handler) =>
+    handler.fulfill({ json: { blocked: false, current_policy: false } }),
+  );
+  await page.goto("/");
+  await expect(
+    page.getByText("Route rules have improved.", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Export GPX", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Download for Android", exact: true }),
+  ).toBeDisabled();
+});
+
+test("prepared Android file can be shared directly from a user click", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "canShare", { value: () => true });
+    Object.defineProperty(navigator, "share", {
+      value: async (data: ShareData) => {
+        (window as any).sharedFile = {
+          name: data.files?.[0].name,
+          active: navigator.userActivation.isActive,
+          contents: await data.files?.[0].text(),
+        };
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Share route", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).sharedFile?.name))
+    .toContain("-android-all.gpx");
+  const shared = await page.evaluate(() => (window as any).sharedFile);
+  expect(shared.active).toBe(true);
+  expect(shared.contents).toContain("<gpx");
+  await expect(
+    page.getByText("Route handed to your chosen app.", { exact: false }),
+  ).toBeVisible();
+});
+
+test("cancelled native sharing keeps the download ready without an error", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "canShare", { value: () => true });
+    Object.defineProperty(navigator, "share", {
+      value: async () => {
+        throw new DOMException("Cancelled", "AbortError");
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Share route", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Download for Android", exact: true }),
+  ).toBeEnabled();
+  await expect(page.locator(".phone-export [role=alert]")).toHaveCount(0);
+});
+
+test("Wi-Fi QR transfer uses the selected route and closes on route or lap changes", async ({
+  page,
+}) => {
+  const opened: { path: string; body: any }[] = [];
+  const closed: string[] = [];
+  await page.route("**/api/transfer/interfaces", (h) =>
+    h.fulfill({ json: [{ name: "Wi-Fi", address: "192.168.1.20" }] }),
+  );
+  await page.route("**/api/routes/*/transfer", (h) => {
+    opened.push({
+      path: new URL(h.request().url()).pathname,
+      body: h.request().postDataJSON(),
+    });
+    return h.fulfill({
+      status: 201,
+      json: {
+        id: `phone-${opened.length}`,
+        url: `http://192.168.1.20:43210/r/phone-${opened.length}`,
+        expires_at: Date.now() / 1000 + 600,
+      },
+    });
+  });
+  await page.route("**/api/transfer/phone-*", (h) => {
+    closed.push(new URL(h.request().url()).pathname);
+    return h.fulfill({ json: { message: "Closed" } });
+  });
+  await page.goto("/");
+  await page.getByText("Send to phone over Wi-Fi", { exact: true }).click();
+  await expect(
+    page.getByText("Anyone on this network", { exact: false }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Create phone link", exact: true })
+    .click();
+  const qr = page.getByRole("img", { name: /Scan this QR code/ });
+  await expect(qr).toBeVisible();
+  await expect
+    .poll(() => qr.evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBe(240);
+  expect(opened[0].path).toBe(`/api/routes/${routes.routes[0].id}/transfer`);
+  expect(opened[0].body).toMatchObject({
+    address: "192.168.1.20",
+    laps: "all",
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByLabel("Phone download link").scrollIntoViewIfNeeded();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await page.screenshot({
+    path: "/tmp/verge-phone-qr.jpg",
+    type: "jpeg",
+    quality: 70,
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.locator(".route-card").nth(1).click();
+  await expect.poll(() => closed).toContain("/api/transfer/phone-1");
+  await expect(qr).toHaveCount(0);
+  await page.getByText("Send to phone over Wi-Fi", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "Create phone link", exact: true })
+    .click();
+  await expect(qr).toBeVisible();
+  await page.getByLabel("Android download laps").selectOption("single");
+  await expect.poll(() => closed).toContain("/api/transfer/phone-2");
+  await expect(qr).toHaveCount(0);
+});
+
+test("a late phone link is closed if the selected route changed while preparing it", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const closed: string[] = [];
+  await page.route("**/api/transfer/interfaces", (h) =>
+    h.fulfill({ json: [{ name: "Wi-Fi", address: "192.168.1.20" }] }),
+  );
+  await page.route("**/api/routes/*/transfer", async (h) => {
+    await ready;
+    return h.fulfill({
+      status: 201,
+      json: {
+        id: "late-phone",
+        url: "http://192.168.1.20:43210/r/late-phone",
+        expires_at: Date.now() / 1000 + 600,
+      },
+    });
+  });
+  await page.route("**/api/transfer/late-phone", (h) => {
+    closed.push(h.request().method());
+    return h.fulfill({ json: { message: "Closed" } });
+  });
+  await page.goto("/");
+  await page.getByText("Send to phone over Wi-Fi", { exact: true }).click();
+  const request = page.waitForRequest(
+    (r) => r.url().endsWith("/transfer") && r.method() === "POST",
+  );
+  await page
+    .getByRole("button", { name: "Create phone link", exact: true })
+    .click();
+  await request;
+  await page.locator(".route-card").nth(1).click();
+  release();
+  await expect.poll(() => closed).toContain("DELETE");
+  await expect(
+    page.getByRole("img", { name: /Scan this QR code/ }),
+  ).toHaveCount(0);
 });

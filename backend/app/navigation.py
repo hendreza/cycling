@@ -30,6 +30,17 @@ def tangent(points, end=False):
     return bearing(reference, ordered[0]) if end else bearing(ordered[0], reference)
 
 
+def physical_uturn(previous, following):
+    """Detect an immediate road reversal, including joins between different OSM ways."""
+    edge, reverse = previous
+    nxt, backwards = following
+    if edge.id == nxt.id and reverse != backwards:
+        return True
+    arrival = (edge.bearings[0] + 180) % 360 if reverse else edge.bearings[1]
+    departure = (nxt.bearings[1] + 180) % 360 if backwards else nxt.bearings[0]
+    return abs((departure - arrival + 180) % 360 - 180) >= 160
+
+
 def turn(angle):
     if abs(angle) >= 160:
         return "TU", "Make a U-turn"
@@ -104,7 +115,10 @@ def navigation(path, plan):
             "turn": "finish",
         }
     )
+    joins = list(zip(path, path[1:] + (path[:1] if plan.mode == "loop" else [])))
+    uturns = sum(physical_uturn(a, b) for a, b in joins)
     return {
+        "physical_uturns_per_lap": uturns,
         "version": 1,
         "segments": segments,
         "cues": cues,

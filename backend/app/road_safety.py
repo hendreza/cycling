@@ -196,7 +196,9 @@ def assessment(path, barriers, timestamp, laps=1, hazards=()):
         {"coordinates": v["coordinates"], "names": sorted(v["names"])} for v in crossings.values()
     ]
     ways = {e.way for e, _ in path}
-    issues = [h for h in hazards if h["way_id"] in ways]
+    issues = [
+        h for h in hazards if h["way_id"] in ways and h["category"] != "personal-access-block"
+    ]
     # Public heuristic weights; changes require a model version change. Missing
     # observations lower the score instead of being counted as safe evidence.
     factors = [

@@ -14,6 +14,7 @@ import {
 import { controlPoints } from "./routeEditing";
 import { savedMapView, saveMapView } from "./persistence";
 import type { Place, Route } from "./types";
+import type { AccessBlock, AccessSection } from "./AccessControls";
 
 const latLng = ([lng, lat]: [number, number]): L.LatLngTuple => [lat, lng];
 const bounds = (route: Route) => L.latLngBounds(route.coordinates.map(latLng));
@@ -46,6 +47,8 @@ export default function RideMap({
   editing,
   onDragRoute,
   onAvoidRoad,
+  accessBlocks,
+  accessCandidate,
 }: {
   routes: Route[];
   selected: number;
@@ -54,7 +57,9 @@ export default function RideMap({
   startCoordinates?: [number, number] | null;
   boundaryVersion?: string;
   onPick: (coordinates: [number, number]) => void;
-  pickMode: "start" | "destination" | null;
+  pickMode: "start" | "destination" | "access" | null;
+  accessBlocks: AccessBlock[];
+  accessCandidate: AccessSection | null;
   draftStart?: [number, number] | null;
   draftDestination?: [number, number] | null;
   focusPoint: [number, number] | null;
@@ -91,6 +96,40 @@ export default function RideMap({
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    const group = L.layerGroup().addTo(m);
+    for (const block of [
+      ...accessBlocks,
+      ...(accessCandidate ? [accessCandidate] : []),
+    ]) {
+      const candidate = block === accessCandidate;
+      L.polyline(block.geometry.map(latLng), {
+        color: candidate ? "#c67139" : "#9d3931",
+        weight: candidate ? 9 : 6,
+        opacity: 0.9,
+        dashArray: candidate ? undefined : "8 5",
+        interactive: false,
+        className: candidate ? "access-preview-line" : "access-block-line",
+      }).addTo(group);
+      const label = document.createElement("span");
+      label.textContent = `${candidate ? "Selected section" : "Blocked access"}: ${block.road_name}`;
+      L.circleMarker(latLng(block.coordinates), {
+        radius: 8,
+        color: "#9d3931",
+        fillColor: "#f5ead8",
+        fillOpacity: 1,
+        interactive: !pickMode,
+      })
+        .bindTooltip(label)
+        .addTo(group);
+    }
+    return () => {
+      group.remove();
+    };
+  }, [accessBlocks, accessCandidate, ready, pickMode]);
 
   function changeBasemap(next: Basemap) {
     setTileFailed(false);
@@ -354,6 +393,10 @@ export default function RideMap({
   useEffect(() => {
     const m = map.current;
     if (!m || !ready || !pickMode) return;
+    if (pickMode === "access") {
+      m.setZoom(Math.max(17, m.getZoom()));
+      return;
+    }
     const point =
       pickMode === "start"
         ? draftStart ||

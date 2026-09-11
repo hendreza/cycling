@@ -1,35 +1,35 @@
-# Verification · 10 September 2026
+# Verification · 11 September 2026
 
 ## Current checks
 
 `make dev` was smoke-tested from the repository root: both local services started and the health endpoint returned 200. It provides a single-terminal start/stop command.
 
-- **126 Python tests pass**: access/gates, directions, turn restrictions, geometry coverage, precise start projection, loop closure, 3% distance matching, fixed/automatic lap limits, refresh fingerprints, point-route exclusions, exact GPX/OsmAnd exports, report handling and import failures.
+- **146 Python tests pass**: access/gates, directions, turn restrictions, geometry coverage, precise start projection, loop closure, 3% distance matching, fixed/automatic lap limits, refresh fingerprints, point-route exclusions, exact GPX/OsmAnd exports, report handling and import failures.
 - New privacy tests use temporary databases. They cover export without administrator secrets, confirmed deletion semantics, rejection of foreign origins/untrusted hosts, required local-action headers and preventing a prior in-flight search from recreating deleted records. No deletion test runs against the owner’s database.
-- **27 browser tests pass with WebGL disabled**. The suite checks the simplified setup, long-preset scope/lap defaults, independent custom lap limits, saved routes and camera, real geometry fixtures, route-line/control dragging, live assessment replacement, Android download metadata, satellite/road rendering with WebGL disabled, no-tile mode, local fonts, route refresh/exhaustion, privacy export/delete, cancellation of a pending GPS lookup on deletion and persistent release work. External services are mocked for repeatability; every test checks for uncaught browser errors.
+- **33 browser tests pass with WebGL disabled**. The suite checks the simplified setup, long-preset scope/lap defaults, independent custom lap limits, saved routes and camera, real geometry fixtures, route-line/control dragging, live assessment replacement, Android download metadata, satellite/road rendering with WebGL disabled, no-tile mode, local fonts, route refresh/exhaustion, privacy export/delete, cancellation of a pending GPS lookup on deletion and persistent release work. New checks cover saved access blocks and export gating, native share/cancellation, QR generation on a 390 px screen, closing links on route/lap changes and cleanup of a late transfer response. External services are mocked for repeatability; every test checks for uncaught browser errors.
 - Ruff lint/format and the TypeScript/Vite production build pass. TypeScript also rejects unused code left over from removed controls.
 - `npm audit` and `pip-audit` against the pinned Python requirements reported **no known vulnerabilities** on 10 September. These are dependency database checks, not a penetration test or proof of security. Reports are retained in `data/exports/verge-*-audit.json`.
 
 ## Current real-data route search
 
-`.venv/bin/python backend/scripts/verify_centurion_routes.py` checks the installed extract without changing the private route database. The report is saved as `data/exports/verge-live-verification.json`. The source snapshot is `2026-09-07T14:11:06Z`: 34,100 mapped ways and 55 estate exclusions, policy `osm-conservative-4`, assessment `mapped-roads-v1`.
+`.venv/bin/python backend/scripts/verify_centurion_routes.py` checks the installed extract without changing the private route database. The report is saved as `data/exports/verge-live-verification.json`. The source snapshot is `2026-09-07T14:11:06Z`: 34,100 mapped ways and 55 estate exclusions, policy `osm-conservative-5`, assessment `mapped-roads-v1`.
 
 From the public Hofsanger Road anchor in Rooihuiskraal, with default road-bike exclusions:
 
 | Target and scope | Actual total / laps / one-lap length | Mapped-road score and junctions per lap |
 | --- | --- | --- |
-| 20 km, local | 20.4 / 8 / 2.6 km; 20.6 / 8 / 2.6 km; **20.5 / 1 / 20.5 km** | 80.0, 80.0, 78.9; zero junctions; low confidence |
-| 90 km, Centurion, cap 3 | 91.9 / 3 / 30.6 km; 92.0 / 3 / 30.7 km | 41.8 and 40.7; 11 and 13 junctions; low confidence |
-| 180 km, Centurion, cap 6 | 180.2 / 6 / 30.0 km; 182.8 / 5 / 36.6 km; **181.4 / 4 / 45.4 km** | 41.5, 41.2, 40.9; 11–15 junctions; low confidence |
-| 200 km, Centurion, cap 6 | 200.9 / 6 / 33.5 km; 202.4 / 5 / 40.5 km; **204.5 / 4 / 51.1 km** | 41.4, 41.3, 41.1; 11–15 junctions; low confidence |
-| Refreshed 90 km, cap 3 | 90.3 / 2 / 45.2 km; 90.6 / 2 / 45.3 km; 90.9 / 3 / 30.3 km | 40.7, 40.4, 39.3; 18–23 junctions; low confidence |
-| 90 km, one loop | No matching route | Longest found in this bounded search: 36.4 km |
+| 20 km, local | 20.2 / 6 / 3.4 km; 20.6 / 8 / 2.6 km; **20.1 / 1 / 20.1 km** | 80.0, 80.0, 79.2; zero junctions; low confidence |
+| 90 km, Centurion, cap 3 | **90.1 / 2 / 45.0 km**; 92.6 / 3 / 30.9 km; 90.4 / 3 / 30.1 km | 42.7, 42.3, 40.7; 13–15 junctions; low confidence |
+| 180 km, Centurion, cap 6 | **180.2 / 4 / 45.1 km**; 182.9 / 6 / 30.5 km; 184.5 / 5 / 36.9 km | 42.8, 42.1, 41.6; 13–15 junctions; low confidence |
+| 200 km, Centurion, cap 6 | **201.1 / 4 / 50.3 km**; 205.2 / 5 / 41.0 km; 205.7 / 6 / 34.3 km | 42.5, 41.9, 41.1; 13–15 junctions; low confidence |
+| Refreshed 90 km, cap 3 | 92.3 / 2 / 46.2 km; 92.0 / 3 / 30.7 km; 91.1 / 3 / 30.4 km | 40.7, 39.2, 38.9; 18–22 junctions; low confidence |
+| 90 km, one loop | No matching route | Longest found in this bounded search: 55.8 km |
 
-Display values are rounded. Every returned route was checked from coordinate geometry: closed loop, start within 20 m, actual total between 100% and 103% of target, allowed lap count and no invented verified score/elevation. Refreshed fingerprints differ from all original 90 km options. The wider loops include more junctions and have lower mapped-road scores; they are not described as field-verified or guaranteed suitable.
+Display values are rounded. Every returned route was checked from coordinate geometry: closed loop, start within 20 m, actual total between 100% and 103% of target, allowed lap count, zero detected physical U-turns including the lap join, no TU navigation cues, and no invented verified score/elevation. Refreshed fingerprints differ from all original 90 km options. The wider loops include more junctions and have lower mapped-road scores; they are not described as field-verified or guaranteed suitable.
 
-Warm searches in this run took approximately 2.6–6.9 seconds. Search seeds, scope, lap caps, start and exclusions can change the result. A “longest found” figure is not an exhaustive maximum and can differ between search configurations.
+Warm searches in this run took approximately 1.7–5.9 seconds. Search seeds, scope, lap caps, start and exclusions can change the result. A “longest found” figure is not an exhaustive maximum and can differ between search configurations.
 
-## Visual and interaction checks
+## Earlier visual and interaction checks (10 September)
 
 The supplied HTML brand reference was rendered and compared with the implementation. Unmocked desktop Chromium loaded the local API, local fonts and actual OSM road tiles; a 1440 px viewport had no horizontal overflow. A final unmocked 90 km search returned the two current 30 km loop choices, displayed 11 junction markers for the selected option, loaded actual Esri imagery and labels (a separate check confirmed all visible imagery tiles loaded without an error), and restored identical route geometry after refresh. A 390 px viewport had no horizontal overflow, all seven grouped public-release items remained in the page, and there were no uncaught browser errors. The result is retained in `data/exports/verge-browser-verification.json`; a fully loaded satellite preview is in `data/exports/verge-satellite-preview.jpg`. Score/confidence panels and map casing were checked visually. The layout preserves a direct mobile jump to the selected map, while extra settings, calibration and source data are collapsible.
 
@@ -51,9 +51,21 @@ Refresh restored identical route geometry and score. A 390 px viewport had no ho
 
 - The mapped-road score is a provisional, explainable heuristic. It is not a verified safety rating, crash probability or measure of cumulative crash exposure. Unknown live traffic, crime/security, unmapped closures and field conditions remain explicit. See the [model weights and meaning](ARCHITECTURE.md#mapped-road-assessment).
 - Road classification, geometry and bridge/access tags can be wrong or incomplete. Device-reported GPS accuracy and the separate 20 m road projection limit do not guarantee absolute physical positioning.
-- Physical Android import, spoken turns, repeated-lap guidance, off-track recalculation and an actual field ride remain untested. Roundabout exit ordinals are not supplied. OsmAnd recalculation uses its own rules.
-- Edited controls and road exclusions can change other connecting roads and total distance. Exclusions apply to an entire OSM way. Undo history resets on refresh; accepted geometry, controls and assessments persist.
+- The owner reported an initial real ride and working but cumbersome transfer, with excessive U-turns and an inaccessible gate. The exact gate location has not yet been supplied. The revised routing, QR transfer, spoken turns, lap transitions and off-track behaviour still need structured physical-device/ride checks. Roundabout exit ordinals are not supplied. OsmAnd recalculation uses its own rules.
+- Edited controls and road exclusions can change other connecting roads and total distance. The older Avoid-road control excludes an entire OSM way. New saved access blocks use the highlighted section geometry and can be individually reopened. Undo history resets on refresh; accepted geometry, controls and assessments persist.
 - Saved assessments retain their source snapshot. Calculate routes to assess against current cached roads and approved reports. A higher score does not establish that a road is safe to ride.
 - Time remains distance divided by selected average moving speed. Hills, stops, road effects and rider training history are not modelled yet.
 - External map tiles require internet; Routes only and local fonts do not. exports require the local API/database. Browser state is specific to its origin. Older-policy saved routes require recalculation before export.
 - Docker runtime/CSP and physical phone navigation remain unverified. Public launch remains gated by [the release checklist](RELEASE_CHECKLIST.md). Two existing Starlette/AnyIO deprecation warnings do not fail the test suite.
+
+## First-ride regression checks (11 September)
+
+New tests require a block detour instead of a reversal, preserve the legal direction around a mapped roundabout, reject an unavoidable dead-end U-turn and detect reversals between different OSM way IDs. Candidate checks include the last-to-first lap join.
+
+Access tests verify that blocks survive a new client, hard-exclude the selected section, invalidate old exports, prevent snapping onto that section and participate in privacy export/deletion. Neighbouring roads touching the junction and unrelated roads crossing the section remain available. Epoch tests reject route searches/exports or access saves overtaken by a block change or deletion.
+
+A real-extract check used a temporary database and a synthetic block on Suikerbekkie Road, not an owner-reported restriction. Old GPX export returned 409. Replacement options were 20.5 km/5 laps, 20.2 km/6 laps and 20.5 km/1 lap, each with zero detected U-turns and no blocked geometry. Replanning plus export checks took 1.62 seconds. Results are in `data/exports/verge-access-verification.json`; no block was saved to the owner’s database.
+
+The GPX-only phone listener is tested on **127.0.0.1**, with temporary route records. Tests verify byte-identical selected-lap/speed GPX, token scope, rejection of API/filesystem paths, host checks, expiry/close, replacement links, arbitrary-address rejection, block/delete revocation and Docker-disable behaviour. No LAN listener or owner route has been exposed during these tests. Actual Android QR scanning, Wi-Fi reachability and OsmAnd import remain a device check.
+
+The final phone-transfer browser screenshot was inspected at 390 px: the locally generated QR, countdown, close control and privacy text fit without horizontal overflow. It is retained as `data/exports/verge-phone-qr.jpg` and uses a mocked private-network URL, not a live transfer.

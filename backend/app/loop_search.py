@@ -83,8 +83,7 @@ def search_paths(graph, network, start, plan):
         if not path or path_start(path[0]) != start or path_end(path[-1]) != start:
             return False
         if any(
-            path_end(part) != path_start(nxt)
-            or not graph.turn_allowed(path_end(part), part[0].way, nxt[0].way)
+            path_end(part) != path_start(nxt) or not graph.follows(part, nxt)
             for part, nxt in zip(path, path[1:] + path[:1])
         ):
             return False
@@ -110,8 +109,8 @@ def search_paths(graph, network, start, plan):
             start,
             network,
             {e.id for e, _ in path},
-            initial_way=path[-1][0].way,
-            final_way=path[0][0].way,
+            initial_part=path[-1],
+            final_part=path[0],
         )
         if back:
             add(path + back[0])
@@ -122,9 +121,7 @@ def search_paths(graph, network, start, plan):
             if km(network.nodes[a], network.nodes[b]) < 0.6:
                 continue
             first = outbound[a]
-            middle = graph.shortest(
-                a, b, network, {e.id for e, _ in first}, initial_way=first[-1][0].way
-            )
+            middle = graph.shortest(a, b, network, {e.id for e, _ in first}, initial_part=first[-1])
             if not middle or not middle[0]:
                 continue
             path = first + middle[0]
@@ -135,8 +132,8 @@ def search_paths(graph, network, start, plan):
                 start,
                 network,
                 {e.id for e, _ in path},
-                initial_way=path[-1][0].way,
-                final_way=path[0][0].way,
+                initial_part=path[-1],
+                final_part=path[0],
             )
             if back:
                 add(path + back[0])
@@ -171,9 +168,7 @@ def search_paths(graph, network, start, plan):
                     continue
                 pivot = rng.choice(available)
                 used = {e.id for e, _ in current}
-                first = graph.shortest(
-                    left, pivot, network, used, initial_way=current[a - 1][0].way
-                )
+                first = graph.shortest(left, pivot, network, used, initial_part=current[a - 1])
                 if not first or not first[0]:
                     continue
                 second = graph.shortest(
@@ -181,8 +176,8 @@ def search_paths(graph, network, start, plan):
                     right,
                     network,
                     used | {e.id for e, _ in first[0]},
-                    initial_way=first[0][-1][0].way,
-                    final_way=current[b % len(current)][0].way,
+                    initial_part=first[0][-1],
+                    final_part=current[b % len(current)],
                 )
                 if not second or not second[0]:
                     continue

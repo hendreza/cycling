@@ -96,6 +96,7 @@ export type Route = {
   start_road?: string;
   navigation?: {
     roundabouts_need_review: boolean;
+    physical_uturns_per_lap?: number;
     segments: { index: number; count: number; way_id: number; name: string }[];
     cues: {
       index: number;

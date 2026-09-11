@@ -26,11 +26,15 @@
 - [x] Map drag editing, explicit road avoidance, transactional failures and undo.
 - [x] OsmAnd calculated-route GPX, turn list and Android transfer instructions.
 
+- [x] Direction-aware search with block/roundabout turnarounds and no immediate U-turn at leg/lap joins.
+- [x] Saved section-level access blocks, map preview/reopen, routing and export enforcement, privacy lifecycle.
+- [x] Prepared Android download with lap choice and native file sharing where supported.
+
 ## Next for personal usefulness
 
-- [ ] Verify OsmAnd import, spoken turns, repeated laps and off-track behaviour on a physical Android phone.
+- [ ] Validate the revised routing and export on Android, including spoken turns, repeated laps and off-track behaviour; initial owner transfer/ride completed with access and U-turn feedback.
 
-- [ ] Field-check frequently used routes and retain private access evidence.
+- [ ] Continue field checks after the initial owner ride; review the reported gate once its location is supplied.
 - [ ] Add personal exclusion polygons for estates and unrecorded barriers, with explicit boundary-crossing validation.
 - [x] Snap onto eligible edge interiors within 20 m, preserving direction and mapped gate exclusions.
 - [x] Reject coarse GPS readings and show the chosen start radius.
@@ -43,7 +47,9 @@
 - [x] Apply the supplied Verge brand kit, local fonts, route outlines and score/confidence components.
 - [ ] Add a saved-rides library, favourite starts and a configurable retention schedule.
 - [ ] Add route-distance progress and full import progress/error diagnostics.
-- [ ] Add secure phone access if desired; current transfer method is GPX.
+- [x] Optional expiring GPX-only Wi-Fi QR transfer; see [the transfer scope](PHONE_TRANSFER_PROPOSAL.md).
+- [ ] Check QR scanning, local Wi-Fi reachability and the full import flow on the owner’s Android phone.
+- [ ] Improve phone-side capture of blocked entrances while retaining precise scope and private storage.
 
 ## Before a public community pilot
 

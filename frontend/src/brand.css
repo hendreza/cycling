@@ -1372,3 +1372,30 @@ textarea {
   stroke: #201e1d;
   stroke-width: 4;
 }
+
+.access-controls { border: 1px solid var(--line, #d8cbb9); border-radius: 14px; padding: 14px 16px; margin: 12px 0; background: #fffaf1; font-size: 14px; }
+.access-controls p { margin: 8px 0; line-height: 1.5; }
+.access-controls summary { cursor: pointer; padding-top: 10px; }
+.access-controls ul { list-style: none; padding: 0; }
+.access-controls li { border-top: 1px solid #e6dac8; padding: 12px 0; }
+.access-picker { padding: 14px 0 4px; }
+.access-picker label { display: block; margin: 12px 0; }
+.access-picker input { width: 100%; margin-top: 6px; }
+.access-picker > button { margin-right: 8px; margin-top: 8px; }
+.access-warning { border-left: 3px solid #9d3931; padding-left: 10px; color: #762d27; }
+.phone-export { background: #eee4d1; border-radius: 16px; padding: 18px; margin: 16px 0; }
+.phone-export h3 { margin: 0; font-size: 20px; }
+.phone-export p { line-height: 1.55; font-size: 14px; }
+.phone-export label { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+.phone-export select { width: auto; }
+.phone-export details { margin-top: 14px; font-size: 14px; }
+.phone-export summary { cursor: pointer; }
+.phone-export li { margin: 8px 0; }
+.route-flow-note { color: #596544; font-size: 14px; }
+.wifi-transfer { border-top: 1px solid #d8cbb9; padding-top: 14px; }
+.transfer-privacy { font-size: 13px !important; color: #665a4a; }
+.phone-link { display: grid; justify-items: start; gap: 10px; margin-top: 14px; }
+.phone-link img { max-width: 100%; height: auto; border-radius: 12px; }
+.phone-link a { overflow-wrap: anywhere; font-size: 13px; }
+.phone-link p { margin: 0; }
+.phone-link small { max-width: 46ch; line-height: 1.5; }

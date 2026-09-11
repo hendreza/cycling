@@ -5,6 +5,8 @@ import os
 import threading
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from functools import cached_property
+from itertools import count
 from datetime import datetime, timezone
 from heapq import heappop, heappush
 from math import atan2, ceil, cos, pi, radians
@@ -12,12 +14,13 @@ from pathlib import Path
 import httpx
 from .routing import BOUNDS, inside, km
 from .timing import estimate_time
-from .navigation import navigation
+from .navigation import navigation, tangent, physical_uturn
 from .road_safety import RoadBarriers, assessment, major_road, safety_rank
 from .neighbourhoods import route_areas
 from .areas import locality, contains_path
 from .loop_search import search_paths, fingerprint, path_length
 from .access_zones import build_zones
+from .access_blocks import AccessMask
 from shapely.geometry import LineString, Point
 
 PUBLIC = {"yes", "designated", "permissive", "official"}
@@ -67,7 +70,7 @@ BARRIERS = {
     "jersey_barrier",
     "chain",
 }
-POLICY_VERSION = "osm-conservative-4"
+POLICY_VERSION = "osm-conservative-5"
 _import_lock = threading.Lock()
 _graph_lock = threading.Lock()
 _state = {"updating": False, "error": None}
@@ -138,6 +141,10 @@ class Edge:
     length: float
     tags: dict
 
+    @cached_property
+    def bearings(self):
+        return tangent(self.points), tangent(self.points, end=True)
+
 
 class RoutingNetwork(defaultdict):
     """Request-local coordinates/edges: projecting a start must not mutate the cached graph."""
@@ -147,6 +154,7 @@ class RoutingNetwork(defaultdict):
         self.nodes = dict(nodes)
         self.next_id = -1
         self.barrier_nodes = set()
+        self.turns = {}
 
 
 def project_on_segment(point, a, b):
@@ -368,10 +376,16 @@ class Graph:
     def adjacency(self, p, hazards=()):
         graph = RoutingNetwork(self.nodes)
         area = locality(p)
-        reported = {h["way_id"] for h in hazards}
+        reported = {h["way_id"] for h in hazards if h["category"] != "personal-access-block"}
+        mask = AccessMask([h for h in hazards if h["category"] == "personal-access-block"])
         forbidden = set(p.avoid_ways) | self.blocked_ways
         for e in self.edges:
-            if e.way in forbidden or not eligible(e.tags, p) or not contains_path(area, e.points):
+            if (
+                e.way in forbidden
+                or not eligible(e.tags, p)
+                or not contains_path(area, e.points)
+                or mask.matches(e.points)
+            ):
                 continue
             # A local cell ends at major roads, not administrative boundaries.
             contacts = self.barriers.contacts(e)
@@ -473,17 +487,58 @@ class Graph:
                 graph[frm].append((to, part, reverse, weight * part.length / edge.length))
         return node, round(distance, 1)
 
-    def shortest(self, start, end, graph, penalised=frozenset(), initial_way=0, final_way=None):
-        initial = (start, initial_way)
-        queue = [(0, start, initial_way)]
+    def follows(self, previous, following):
+        if previous is None or following is None:
+            return True
+        edge, reverse = previous
+        nxt, backwards = following
+        node = edge.a if reverse else edge.b
+        return (
+            node == (nxt.b if backwards else nxt.a)
+            and self.turn_allowed(node, edge.way, nxt.way)
+            and not physical_uturn(previous, following)
+        )
+
+    def shortest(
+        self,
+        start,
+        end,
+        graph,
+        penalised=frozenset(),
+        initial_way=0,
+        final_way=None,
+        initial_part=None,
+        final_part=None,
+    ):
+        # Direction is part of the state. A way ID alone loses the distinction
+        # between riding through a road and turning straight back along it.
+        initial = (start, "", False)
+        serial = count()
+        queue = [(0, next(serial), initial)]
         best = {initial: 0}
         parent = {}
+        incoming_parts = {initial: initial_part}
+
+        def allowed(previous, following):
+            if previous is None or following is None:
+                return True
+            key = (previous[0].id, previous[1], following[0].id, following[1])
+            if key not in graph.turns:
+                graph.turns[key] = self.follows(previous, following)
+            return graph.turns[key]
+
         while queue:
-            cost, node, incoming = heappop(queue)
-            state = (node, incoming)
+            cost, _, state = heappop(queue)
+            node = state[0]
             if cost > best[state]:
                 continue
-            if node == end and (final_way is None or self.turn_allowed(node, incoming, final_way)):
+            incoming = incoming_parts[state]
+            incoming_way = incoming[0].way if incoming else initial_way
+            if (
+                node == end
+                and (final_way is None or self.turn_allowed(node, incoming_way, final_way))
+                and allowed(incoming, final_part)
+            ):
                 path = []
                 while state != initial:
                     previous, edge, reverse = parent[state]
@@ -493,14 +548,18 @@ class Graph:
             if node in graph.barrier_nodes:
                 continue
             for nxt, edge, reverse, weight in graph.get(node, []):
-                if not self.turn_allowed(node, incoming, edge.way):
+                part = (edge, reverse)
+                if not self.turn_allowed(node, incoming_way, edge.way) or not allowed(
+                    incoming, part
+                ):
                     continue
-                nxt_state = (nxt, edge.way)
+                nxt_state = (nxt, edge.id, reverse)
                 new = cost + weight * (8 if edge.id in penalised else 1)
                 if new < best.get(nxt_state, float("inf")):
                     best[nxt_state] = new
                     parent[nxt_state] = (state, edge, reverse)
-                    heappush(queue, (new, nxt, edge.way))
+                    incoming_parts[nxt_state] = part
+                    heappush(queue, (new, next(serial), nxt_state))
         return None
 
     def turn_allowed(self, node, frm, to):
@@ -647,6 +706,9 @@ class Graph:
                 != path[0][0].points[-1 if path[0][1] else 0]
             ):
                 return
+            joins = list(zip(path, path[1:] + (path[:1] if p.mode == "loop" else [])))
+            if any(not self.follows(a, b) for a, b in joins):
+                return
             length = sum(e.length for e, _ in path)
             if (
                 p.mode == "loop"
@@ -674,14 +736,14 @@ class Graph:
                     b,
                     graph,
                     {edge.id for edge, _ in path},
-                    initial_way=path[-1][0].way if path else 0,
-                    final_way=path[0][0].way
+                    initial_part=path[-1] if path else None,
+                    final_part=path[0]
                     if path and p.mode == "loop" and i == len(checkpoints) - 2
                     else None,
                 )
                 if found is None:
                     raise ValueError(
-                        "Cannot connect the editing points with the current area, direction and access limits. Move a point or undo the edit."
+                        "Cannot connect the editing points without a U-turn under the current area, direction and access limits. Move a point or undo the edit."
                     )
                 path.extend(found[0])
             if sum(edge.length for edge, _ in path) * p.laps > p.distance * 2:
@@ -740,8 +802,8 @@ class Graph:
                     start,
                     graph,
                     {e.id for e, _ in path},
-                    initial_way=path[-1][0].way,
-                    final_way=path[0][0].way,
+                    initial_part=path[-1],
+                    final_part=path[0],
                 )
                 if inbound:
                     add(path + inbound[0])
