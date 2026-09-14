@@ -1,8 +1,10 @@
 # Verge public-release checklist
 
-Status: **private personal preview**. Updated 10 September 2026.
+Status: **private personal preview**. Updated 14 September 2026.
 
 The owner has explicitly chosen to keep Verge private for now and requested that unfinished legal and operational work remain visible. The app repeats these open items under **Data & privacy → Work that stays on the list**. They are not dismissed by using the app, downloading a route or deleting local data. This document records release requirements; it is not a statement that Verge is compliant or cleared for public launch.
+
+The [release plan](RELEASE_PLAN.md) sequences the work; the [legal review brief](LEGAL_REVIEW_BRIEF.md) supplies proposed notices, responsible roles and review evidence. All items below remain open. An invited hosted pilot also needs the preparation appropriate to processing other riders’ data.
 
 | Status | Work before public use | Evidence needed to close it |
 | --- | --- | --- |

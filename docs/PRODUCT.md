@@ -1,5 +1,7 @@
 # Centurion personal release · v0.2
 
+This document describes the current private product. The proposed mobile service, invited pilot and region expansion are in the [release plan](RELEASE_PLAN.md); they are planning work, not implemented coverage or an approved public launch.
+
 The immediate goal is a useful route planner for one local rider: choose a real start, generate a route on real roads, inspect it, exclude known unsuitable roads and take a GPX file on a ride.
 
 Scope stays within the fixed Centurion pilot rectangle. This is not an official municipal boundary or an expansion to nearby venues. Road, gravel and MTB refer to allowed surfaces and difficulty; they do not guarantee off-road options where the mapped network lacks eligible connections.

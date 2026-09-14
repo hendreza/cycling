@@ -2,6 +2,10 @@
 
 **Real OpenStreetMap roads, local route generation, GPX export.** Open the running app at http://localhost:5173. This version replaces the synthetic prototype.
 
+**Start your installed app:** run `./START_VERGE.sh` from this folder. It opens the browser when ready; Ctrl+C stops the services it starts. See [START_HERE.md](START_HERE.md) for the launch file, optional Linux shortcut and troubleshooting.
+
+**Plan the next version:** [mobile and release plan](docs/RELEASE_PLAN.md) · [adding areas](docs/AREA_EXPANSION_PLAN.md) · [legal review brief](docs/LEGAL_REVIEW_BRIEF.md) · [decision log](docs/planning/DECISIONS.md). These are proposals; public release remains unapproved and unfinished.
+
 The downloaded Centurion extract contains 34,100 mapped ways. The UI displays separate road and residential-boundary source dates; the running app shows the current snapshots after each import. Routes use actual OSM node geometry. No routing API key or hosted routing service is required: your computer computes routes from a cached extract. Surface and access tags are shown. An explainable mapped-road score ranks route candidates; live traffic, security conditions and elevation remain unknown.
 
 ## Use it for your first ride
@@ -33,13 +37,13 @@ make setup
 .venv/bin/python backend/scripts/download_neighbourhoods.py
 ```
 
-Start both services with one command:
+Start both services and open the browser:
 
 ```sh
-make dev
+./START_VERGE.sh
 ```
 
-Keep that terminal open; Ctrl+C stops both. Alternatively, run each service in its own terminal:
+`make dev` remains available without automatically opening a browser. Keep that terminal open; Ctrl+C stops both services started by it. Alternatively, run each service in its own terminal:
 
 ```sh
 make api

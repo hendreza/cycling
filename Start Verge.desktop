@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Start Verge
+Comment=Start the local cycling planner and open it in your browser
+Exec=/home/hendre/Projects/cycling/START_VERGE.sh
+Path=/home/hendre/Projects/cycling
+Icon=/home/hendre/Projects/cycling/frontend/public/verge.svg
+Terminal=true
+Categories=Utility;
+StartupNotify=false

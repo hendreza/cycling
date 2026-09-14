@@ -3,6 +3,10 @@
 **Private testing continues. Public release is not ready.** The owner requested that legal and operational work remain visible. The authoritative open list is [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md), repeated in the app under Data & privacy. No checklist item is silently closed by this redesign.
 
 
+## Planning before the next build
+
+Use the [release plan](RELEASE_PLAN.md) and [decision log](planning/DECISIONS.md) to agree the first audience, phone workflow, budget and upkeep before selecting implementation tasks. The [area process](AREA_EXPANSION_PLAN.md) and [legal brief](LEGAL_REVIEW_BRIEF.md) define the evidence needed for expansion and outside users. Existing items below remain open where marked; they are not all part of the proposed first pilot.
+
 ## Completed
 
 - [x] Download and cache a real bounded Centurion OSM road extract.
